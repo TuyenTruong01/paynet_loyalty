@@ -3,6 +3,8 @@ import { money, shortAddress } from '../utils/format.js';
 
 export default function POSPanel({
   invoiceActive,
+  canUsePos = false,
+  posLockMessage = '',
   onCreateInvoice,
   cartRows,
   customers,
@@ -53,6 +55,7 @@ export default function POSPanel({
   const canUsePoints = selectedCustomer?.id && Number(selectedCustomer.points || 0) > 0;
   const maxDiscountRaw = Math.floor(grossTotal * 0.2);
   const pointsCap = Math.min(Number(selectedCustomer?.points || 0), Math.floor(maxDiscountRaw / 100));
+  const lockedButtonStyle = !canUsePos ? { opacity: 0.45, cursor: 'not-allowed' } : undefined;
 
   return (
     <section className="pos-panel panel">
@@ -61,10 +64,34 @@ export default function POSPanel({
           <p className="eyebrow">Crypto Checkout</p>
           <h2>POS / Checkout</h2>
         </div>
-        <button type="button" className="primary small" onClick={onCreateInvoice}>
+        <button
+          type="button"
+          className="primary small"
+          disabled={!canUsePos}
+          onClick={canUsePos ? onCreateInvoice : undefined}
+          title={posLockMessage}
+          style={lockedButtonStyle}
+        >
           <ReceiptText size={16} /> Create New Invoice
         </button>
       </div>
+
+      {!canUsePos && (
+        <div
+          style={{
+            marginTop: 12,
+            marginBottom: 12,
+            padding: '12px 14px',
+            borderRadius: 12,
+            background: '#fff7ed',
+            border: '1px solid #fed7aa',
+            color: '#9a3412',
+            fontWeight: 700,
+          }}
+        >
+          {posLockMessage || 'Connect a whitelisted staff wallet to use POS.'}
+        </div>
+      )}
 
       {!invoiceActive ? (
         <div className="empty-invoice">
@@ -81,8 +108,11 @@ export default function POSPanel({
                 value={productSearch}
                 onChange={event => setProductSearch(event.target.value)}
                 placeholder="Scan barcode, enter SKU, QR code, or search product name..."
+                disabled={!canUsePos}
               />
-              <button type="submit"><QrCode size={17} /> Add</button>
+              <button type="submit" disabled={!canUsePos} style={lockedButtonStyle}>
+                <QrCode size={17} /> Add
+              </button>
             </form>
 
             <div className="invoice-table-wrap">
@@ -110,15 +140,15 @@ export default function POSPanel({
                       <td>{row.sku}</td>
                       <td>
                         <span className="qty-control">
-                          <button type="button" onClick={() => changeQty(row.id, -1)}><Minus size={13} /></button>
+                          <button type="button" disabled={!canUsePos} onClick={() => changeQty(row.id, -1)}><Minus size={13} /></button>
                           <b>{row.qty}</b>
-                          <button type="button" onClick={() => changeQty(row.id, 1)}><Plus size={13} /></button>
+                          <button type="button" disabled={!canUsePos} onClick={() => changeQty(row.id, 1)}><Plus size={13} /></button>
                         </span>
                       </td>
                       <td>{money(row.price)}</td>
                       <td><strong>{money(row.price * row.qty)}</strong></td>
                       <td>
-                        <button className="table-icon danger" type="button" onClick={() => removeItem(row.id)}>
+                        <button className="table-icon danger" type="button" disabled={!canUsePos} onClick={() => removeItem(row.id)}>
                           <Trash2 size={15} />
                         </button>
                       </td>
@@ -131,7 +161,7 @@ export default function POSPanel({
 
           <aside className="checkout-summary">
             <label className="field-label">Customer Wallet</label>
-            <select value={customerId || ''} onChange={event => setCustomerId(event.target.value)}>
+            <select value={customerId || ''} onChange={event => setCustomerId(event.target.value)} disabled={!canUsePos}>
               <option value="">Guest checkout</option>
               {customers.map(customer => (
                 <option value={customer.id} key={customer.id}>{shortAddress(customer.wallet)} · {customer.points} pts</option>
@@ -149,10 +179,10 @@ export default function POSPanel({
               <p><span>Estimated Earn</span><strong>{pointsEarned} pts</strong></p>
             </div>
 
-            <label className={`check-line ${!canUsePoints ? 'muted' : ''}`}>
+            <label className={`check-line ${!canUsePoints || !canUsePos ? 'muted' : ''}`}>
               <input
                 type="checkbox"
-                disabled={!canUsePoints}
+                disabled={!canUsePos || !canUsePoints}
                 checked={pointsUsed > 0}
                 onChange={event => setPointsUsed(event.target.checked ? pointsCap : 0)}
               />
@@ -169,12 +199,24 @@ export default function POSPanel({
             </div>
 
             {!checkout ? (
-              <button className="primary full" type="button" disabled={!cartRows.length || paymentStatus === 'checking'} onClick={onCreateCheckout}>
+              <button
+                className="primary full"
+                type="button"
+                disabled={!canUsePos || !cartRows.length || paymentStatus === 'checking'}
+                onClick={canUsePos ? onCreateCheckout : undefined}
+                style={lockedButtonStyle}
+              >
                 {paymentStatus === 'checking' ? <RefreshCw className="spin" size={16} /> : <QrCode size={16} />}
                 Generate Arc Checkout QR
               </button>
             ) : (
-              <button className="success full" type="button" disabled={paymentStatus === 'checking' || paymentStatus === 'paid'} onClick={onConfirmMockPayment}>
+              <button
+                className="success full"
+                type="button"
+                disabled={!canUsePos || paymentStatus === 'checking' || paymentStatus === 'paid'}
+                onClick={canUsePos ? onConfirmMockPayment : undefined}
+                style={lockedButtonStyle}
+              >
                 {paymentStatus === 'checking' ? <RefreshCw className="spin" size={16} /> : <CheckCircle2 size={16} />}
                 {paymentStatus === 'paid' ? 'Paid on Arc' : 'Manual Confirm Payment'}
               </button>

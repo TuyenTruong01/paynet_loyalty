@@ -52,19 +52,39 @@ function resolveReceiverWallet(value = '') {
   return MERCHANT_RECEIVER_WALLET;
 }
 
+function ensureStaffArray(staffMembers) {
+  return Array.isArray(staffMembers) ? staffMembers : DEFAULT_STAFF_WALLETS;
+}
+
 function findStaffByWallet(staffMembers = [], wallet = '') {
   const normalized = normalizeWallet(wallet);
-  return staffMembers.find(member => normalizeWallet(member.wallet) === normalized) || null;
+  const list = ensureStaffArray(staffMembers);
+
+  if (!normalized) return null;
+
+  return (
+    list.find(member => {
+      const memberWallet = normalizeWallet(member?.wallet);
+      const isActive = member?.active !== false;
+      return memberWallet === normalized && isActive;
+    }) || null
+  );
 }
 
 function mergeStaffWhitelist(rows = []) {
   const byWallet = new Map();
-  DEFAULT_STAFF_WALLETS.forEach(member => byWallet.set(normalizeWallet(member.wallet), member));
-  rows.forEach(member => {
+
+  DEFAULT_STAFF_WALLETS.forEach(member => {
     const key = normalizeWallet(member.wallet);
+    if (key) byWallet.set(key, member);
+  });
+
+  ensureStaffArray(rows).forEach(member => {
+    const key = normalizeWallet(member?.wallet);
     if (key) byWallet.set(key, { ...byWallet.get(key), ...member });
   });
-  return Array.from(byWallet.values()).filter(member => member.wallet);
+
+  return Array.from(byWallet.values()).filter(member => member?.wallet && member?.active !== false);
 }
 
 export default function App() {
@@ -207,9 +227,40 @@ export default function App() {
     return product ? { ...product, qty: item.qty } : null;
   }).filter(Boolean), [cart, data.products]);
 
-  const staffMembers = data.staffMembers || DEFAULT_STAFF_WALLETS;
-  const activeStaff = findStaffByWallet(staffMembers, currentWallet) || data.staff || DEFAULT_STAFF_WALLETS[0];
-  const isManager = isManagerWallet(currentWallet, activeStaff);
+  const staffMembers = ensureStaffArray(data.staffMembers);
+
+  const activeStaff = currentWallet
+    ? findStaffByWallet(staffMembers, currentWallet)
+    : null;
+
+  const isWhitelistedStaff = Boolean(connected && currentWallet && activeStaff?.wallet);
+  const canUsePos = isWhitelistedStaff;
+
+  const posLockMessage = !connected || !currentWallet
+    ? 'Connect a whitelisted staff wallet to create invoices.'
+    : !isWhitelistedStaff
+      ? 'This wallet is not whitelisted for POS access.'
+      : '';
+
+  const displayStaff = activeStaff || data.staff || DEFAULT_STAFF_WALLETS[0];
+
+  const isManager = isWhitelistedStaff
+    ? isManagerWallet(currentWallet, activeStaff)
+    : false;
+
+  function requireWhitelistedStaff(actionName = 'perform this action') {
+    if (!connected || !currentWallet) {
+      alert(`Please connect a whitelisted staff wallet before you ${actionName}.`);
+      return false;
+    }
+
+    if (!isWhitelistedStaff) {
+      alert('This wallet is not whitelisted. Only approved staff wallets can use the POS.');
+      return false;
+    }
+
+    return true;
+  }
 
   const taxRate = Number(data.settings?.taxRate || 10);
   const subtotal = cartRows.reduce((sum, row) => sum + row.price * row.qty, 0);
@@ -220,6 +271,8 @@ export default function App() {
   const pointsEarned = pointsFromRaw(total);
 
   function createNewInvoice() {
+    if (!requireWhitelistedStaff('create an invoice')) return;
+
     setInvoiceActive(true);
     setCart([]);
     setCheckout(null);
@@ -229,6 +282,8 @@ export default function App() {
   }
 
   function addToCart(product) {
+    if (!requireWhitelistedStaff('add products to an invoice')) return;
+
     if (!invoiceActive) setInvoiceActive(true);
     setCheckout(null);
     setPaymentStatus('idle');
@@ -240,10 +295,14 @@ export default function App() {
   }
 
   function changeQty(productId, delta) {
+    if (!requireWhitelistedStaff('edit invoice quantity')) return;
+
     setCart(current => current.map(item => item.id === productId ? { ...item, qty: Math.max(1, item.qty + delta) } : item));
   }
 
   function removeItem(productId) {
+    if (!requireWhitelistedStaff('remove products from an invoice')) return;
+
     setCart(current => current.filter(item => item.id !== productId));
   }
 
@@ -259,6 +318,8 @@ export default function App() {
   }
 
   async function handleCreateCheckout() {
+    if (!requireWhitelistedStaff('create a checkout order')) return;
+
     if (!cartRows.length) return;
     setPaymentStatus('checking');
     try {
@@ -308,13 +369,15 @@ export default function App() {
   }
 
   async function handleConfirmMockPayment() {
+    if (!requireWhitelistedStaff('confirm payment from POS')) return;
+
     if (!checkout) return;
     setPaymentStatus('checking');
     try {
       if (checkout?.order_id && hasSupabaseConfig) {
         await confirmArcPayment({
           orderId: checkout.order_id,
-          payerWallet: selectedCustomer?.wallet || data.staff.wallet,
+          payerWallet: selectedCustomer?.wallet || activeStaff?.wallet || currentWallet,
           checkoutToken: checkout.checkout_token,
         });
         await loadData();
@@ -499,8 +562,20 @@ export default function App() {
   async function handleConnectWallet() {
     try {
       const wallet = await connectArcWallet();
-      setCurrentWallet(wallet.address);
+      const walletAddress = wallet.address;
+      const isAllowed = Boolean(findStaffByWallet(data.staffMembers || DEFAULT_STAFF_WALLETS, walletAddress));
+
+      setCurrentWallet(walletAddress);
       setConnected(true);
+
+      if (!isAllowed) {
+        setInvoiceActive(false);
+        setCart([]);
+        setCheckout(null);
+        setPaymentStatus('idle');
+        setPointsUsed(0);
+        alert('Wallet connected, but it is not whitelisted. Only approved staff wallets can use the POS.');
+      }
     } catch (error) {
       console.error(error);
       alert(error.message || 'Cannot connect wallet.');
@@ -511,6 +586,11 @@ export default function App() {
   function handleSignOut() {
     setConnected(false);
     setCurrentWallet('');
+    setInvoiceActive(false);
+    setCart([]);
+    setCheckout(null);
+    setPaymentStatus('idle');
+    setPointsUsed(0);
   }
 
   function renderPage() {
@@ -544,6 +624,8 @@ export default function App() {
       return (
         <POSPage
           invoiceActive={invoiceActive}
+          canUsePos={canUsePos}
+          posLockMessage={posLockMessage}
           onCreateInvoice={createNewInvoice}
           cartRows={cartRows}
           customers={data.customers}
@@ -606,7 +688,7 @@ export default function App() {
           connected={connected}
           onConnect={handleConnectWallet}
           onSignOut={handleSignOut}
-          staff={activeStaff}
+          staff={displayStaff}
           staffMembers={staffMembers}
           currentWallet={currentWallet}
           setCurrentWallet={setCurrentWallet}
