@@ -1,0 +1,69 @@
+import { Bell, LogOut, Menu, Search, Wallet } from 'lucide-react';
+import { shortAddress } from '../utils/format.js';
+import { rolePermissionLabel } from '../utils/roles.js';
+
+export default function Header({
+  query,
+  setQuery,
+  connected,
+  onConnect,
+  onSignOut,
+  staff,
+  currentWallet,
+  isManager,
+  network,
+}) {
+  const displayWallet = currentWallet || staff?.wallet || '';
+  const staffName = staff?.name || (isManager ? 'Store Manager' : 'ArcPay Staff');
+
+  return (
+    <header className="topbar">
+      <button className="icon-button" type="button" aria-label="Open menu">
+        <Menu size={22} />
+      </button>
+
+      <label className="global-search">
+        <Search size={18} />
+        <input
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="Search products, orders, customers"
+        />
+        <kbd>Ctrl + K</kbd>
+      </label>
+
+      <div className="topbar-spacer" />
+
+      {!connected ? (
+        <button className="connect-wallet" type="button" onClick={onConnect}>
+          <Wallet size={17} /> Connect Wallet
+        </button>
+      ) : (
+        <div className="connected-area">
+          <select className="network-select" value={network || 'Arc Testnet'} onChange={() => {}}>
+            <option>Arc Testnet</option>
+            <option>Arc Mainnet</option>
+          </select>
+
+          <Bell className="bell-icon" size={21} />
+
+          <div
+            className="user-menu"
+            title={`${rolePermissionLabel(isManager)}\nWallet: ${displayWallet}`}
+          >
+            <div className="mini-avatar">{staff?.avatar || '👤'}</div>
+            <div>
+              <strong>{staffName}</strong>
+              <span>{shortAddress(displayWallet)}</span>
+            </div>
+          </div>
+
+          <button className="signout-topbar-button" type="button" onClick={onSignOut}>
+            <LogOut size={16} />
+            Sign out
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}
