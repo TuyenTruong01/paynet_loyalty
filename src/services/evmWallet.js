@@ -1,6 +1,7 @@
 import EthereumProvider from '@walletconnect/ethereum-provider';
 
 let walletConnectProvider = null;
+let activeEvmProvider = null;
 
 export function getInjectedEthereum() {
   if (typeof window === 'undefined') return null;
@@ -13,6 +14,10 @@ export function getInjectedEthereum() {
   }
 
   return eth || walletConnectProvider;
+}
+
+export function getActiveEvmProvider() {
+  return activeEvmProvider || getInjectedEthereum();
 }
 
 export function isValidEvmAddress(address = '') {
@@ -73,6 +78,85 @@ async function getWalletConnectProvider(chain) {
   return walletConnectProvider;
 }
 
+function isWalletConnectProvider(ethereum) {
+  return Boolean(ethereum && ethereum === walletConnectProvider);
+}
+
+function normalizeProviderAccounts(accounts) {
+  if (Array.isArray(accounts)) return accounts;
+  if (typeof accounts === 'string') return [accounts];
+  return [];
+}
+
+async function readProviderAccounts(ethereum) {
+  const directAccounts = normalizeProviderAccounts(ethereum?.accounts);
+
+  if (directAccounts.length) {
+    return directAccounts;
+  }
+
+  try {
+    return normalizeProviderAccounts(await ethereum.request({ method: 'eth_accounts' }));
+  } catch {
+    return [];
+  }
+}
+
+function waitForWalletConnectAccounts(ethereum, timeoutMs = 15000) {
+  return new Promise(resolve => {
+    let settled = false;
+    let cleanup = () => {};
+
+    const finish = accounts => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(normalizeProviderAccounts(accounts));
+    };
+
+    const timer = window.setTimeout(async () => {
+      finish(await readProviderAccounts(ethereum));
+    }, timeoutMs);
+
+    const onAccountsChanged = accounts => finish(accounts);
+    const onConnect = async () => finish(await readProviderAccounts(ethereum));
+
+    cleanup = () => {
+      window.clearTimeout(timer);
+      ethereum.removeListener?.('accountsChanged', onAccountsChanged);
+      ethereum.removeListener?.('connect', onConnect);
+    };
+
+    ethereum.on?.('accountsChanged', onAccountsChanged);
+    ethereum.on?.('connect', onConnect);
+  });
+}
+
+async function requestWalletAccounts(ethereum) {
+  if (isWalletConnectProvider(ethereum)) {
+    const enabledAccounts = normalizeProviderAccounts(await ethereum.enable());
+
+    if (enabledAccounts.length) {
+      return enabledAccounts;
+    }
+
+    return waitForWalletConnectAccounts(ethereum);
+  }
+
+  return normalizeProviderAccounts(await ethereum.request({ method: 'eth_requestAccounts' }));
+}
+
+function chainSwitchError(chain, error) {
+  const message = error?.message || 'Wallet could not switch networks automatically.';
+  const nextError = new Error(
+    `${message} Please switch your wallet to ${chain.label} and return to this checkout.`
+  );
+
+  nextError.code = 'CHAIN_SWITCH_UNSUPPORTED';
+  nextError.cause = error;
+  return nextError;
+}
+
 export async function ensureEvmChain(chain, ethereum = getInjectedEthereum()) {
   assertChainReady(chain);
 
@@ -95,13 +179,17 @@ export async function ensureEvmChain(chain, ethereum = getInjectedEthereum()) {
     return true;
   } catch (switchError) {
     if (switchError?.code !== 4902) {
-      throw switchError;
+      throw chainSwitchError(chain, switchError);
     }
 
-    await ethereum.request({
-      method: 'wallet_addEthereumChain',
-      params: [walletParams(chain)],
-    });
+    try {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [walletParams(chain)],
+      });
+    } catch (addError) {
+      throw chainSwitchError(chain, addError);
+    }
 
     return true;
   }
@@ -114,18 +202,28 @@ export async function connectEvmWallet(chain) {
     ethereum = await getWalletConnectProvider(chain);
   }
 
-  const accounts = ethereum === walletConnectProvider
-    ? await ethereum.enable()
-    : await ethereum.request({ method: 'eth_requestAccounts' });
+  const accounts = await requestWalletAccounts(ethereum);
   const address = accounts?.[0];
 
   assertAddress(address, 'connected wallet');
 
-  await ensureEvmChain(chain, ethereum);
+  activeEvmProvider = ethereum;
+
+  let chainReady = true;
+  let chainError = null;
+
+  try {
+    await ensureEvmChain(chain, ethereum);
+  } catch (error) {
+    chainReady = false;
+    chainError = error;
+  }
 
   return {
     address,
     chainId: chain.chainIdDecimal,
+    chainReady,
+    chainError,
     network: chain.label,
     provider: ethereum,
   };

@@ -10,6 +10,7 @@ import {
   ARC_TESTNET_CHAIN,
   ARC_USDC,
 } from '../services/arcPayment.js';
+import { getActiveEvmProvider } from '../services/evmWallet.js';
 import { recordApointPaymentProof } from '../services/apointProofService.js';
 import { formatPoints, money, pointsFromRaw, pointsToOnchainUnits, rawFromPoints, redeemablePointsFromRaw, shortAddress } from '../utils/format.js';
 
@@ -50,6 +51,18 @@ function getOrderStoreId(order = {}, store = {}) {
     store?.id ||
     null
   );
+}
+
+function isArcTestnetChainId(chainId) {
+  if (!chainId) return false;
+
+  const value = String(chainId).toLowerCase();
+
+  if (value === ARC_TESTNET_CHAIN.chainIdHex.toLowerCase()) {
+    return true;
+  }
+
+  return Number(value) === ARC_TESTNET_CHAIN.chainIdDecimal;
 }
 
 async function insertCustomerWithFallback(walletAddress, order, store) {
@@ -164,6 +177,7 @@ export default function CustomerCheckoutPage({
 
   const [customerWallet, setCustomerWallet] = useState('');
   const [walletConnected, setWalletConnected] = useState(false);
+  const [walletChainReady, setWalletChainReady] = useState(false);
   const [walletCustomer, setWalletCustomer] = useState(null);
   const [availablePoints, setAvailablePoints] = useState(0);
 
@@ -189,6 +203,7 @@ export default function CustomerCheckoutPage({
             setOrder(mapped);
             setCustomerWallet('');
             setWalletConnected(false);
+            setWalletChainReady(false);
             setWalletCustomer(null);
             setAvailablePoints(0);
             setUsePoints(false);
@@ -238,6 +253,78 @@ export default function CustomerCheckoutPage({
     loadCheckout();
   }, [token, demoOrders]);
 
+  useEffect(() => {
+    if (!walletConnected) return undefined;
+
+    const ethereum = getActiveEvmProvider();
+
+    if (!ethereum) return undefined;
+
+    let mounted = true;
+
+    const syncChain = async () => {
+      try {
+        const chainId = await ethereum.request({ method: 'eth_chainId' });
+
+        if (!mounted) return;
+
+        const ready = isArcTestnetChainId(chainId);
+        setWalletChainReady(ready);
+
+        if (ready) {
+          setErrorMessage('');
+        } else {
+          setErrorMessage(`Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`);
+        }
+      } catch (error) {
+        if (mounted) {
+          setWalletChainReady(false);
+          setErrorMessage(error.message || `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`);
+        }
+      }
+    };
+
+    const handleAccountsChanged = accounts => {
+      const nextAddress = Array.isArray(accounts) ? accounts[0] : '';
+
+      if (nextAddress) {
+        setCustomerWallet(nextAddress);
+        setWalletConnected(true);
+      }
+    };
+
+    const handleChainChanged = chainId => {
+      const ready = isArcTestnetChainId(chainId);
+      setWalletChainReady(ready);
+      setErrorMessage(ready ? '' : `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`);
+    };
+
+    const handleDisconnect = () => {
+      setWalletConnected(false);
+      setWalletChainReady(false);
+      setCustomerWallet('');
+      setWalletCustomer(null);
+      setAvailablePoints(0);
+      setUsePoints(false);
+      setRedeemInput(0);
+    };
+
+    syncChain();
+
+    ethereum.on?.('accountsChanged', handleAccountsChanged);
+    ethereum.on?.('chainChanged', handleChainChanged);
+    ethereum.on?.('disconnect', handleDisconnect);
+    ethereum.on?.('session_delete', handleDisconnect);
+
+    return () => {
+      mounted = false;
+      ethereum.removeListener?.('accountsChanged', handleAccountsChanged);
+      ethereum.removeListener?.('chainChanged', handleChainChanged);
+      ethereum.removeListener?.('disconnect', handleDisconnect);
+      ethereum.removeListener?.('session_delete', handleDisconnect);
+    };
+  }, [walletConnected]);
+
   async function connectWallet() {
     setErrorMessage('');
 
@@ -247,6 +334,7 @@ export default function CustomerCheckoutPage({
 
       setCustomerWallet(walletAddress);
       setWalletConnected(true);
+      setWalletChainReady(Boolean(wallet.chainReady));
       setUsePoints(false);
 
       if (hasSupabaseConfig && supabase && walletAddress) {
@@ -262,9 +350,17 @@ export default function CustomerCheckoutPage({
         setWalletCustomer(null);
         setAvailablePoints(0);
       }
+
+      if (!wallet.chainReady) {
+        setErrorMessage(
+          wallet.chainError?.message ||
+          `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`
+        );
+      }
     } catch (error) {
       console.error(error);
       setWalletConnected(false);
+      setWalletChainReady(false);
       setCustomerWallet('');
       setWalletCustomer(null);
       setAvailablePoints(0);
@@ -369,14 +465,24 @@ export default function CustomerCheckoutPage({
     setStatus('paying');
 
     try {
-      const wallet = walletConnected && customerWallet
-        ? { address: customerWallet }
+      const wallet = walletConnected && customerWallet && walletChainReady
+        ? { address: customerWallet, chainReady: true }
         : await connectArcTestnetWallet();
 
       const walletAddress = wallet.address;
 
       setCustomerWallet(walletAddress);
       setWalletConnected(true);
+      setWalletChainReady(Boolean(wallet.chainReady));
+
+      if (!wallet.chainReady) {
+        setStatus('ready');
+        setErrorMessage(
+          wallet.chainError?.message ||
+          `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`
+        );
+        return;
+      }
 
       let customer = walletCustomer;
 
@@ -397,11 +503,14 @@ export default function CustomerCheckoutPage({
         from: walletAddress,
         to: checkoutReceiverWallet,
         rawAmount: payable,
+        provider: wallet.provider,
       });
 
       setTxHash(paymentTxHash);
 
-      const paymentReceipt = await waitForArcTestnetReceipt(paymentTxHash);
+      const paymentReceipt = await waitForArcTestnetReceipt(paymentTxHash, {
+        provider: wallet.provider,
+      });
 
       if (String(paymentReceipt?.status || '').toLowerCase() === '0x0') {
         throw new Error('USDC payment reverted. The invoice was not marked as paid.');
@@ -628,10 +737,21 @@ export default function CustomerCheckoutPage({
               New loyalty points will be earned from the actual paid amount: <strong>{formatPoints(earnedPoints)} pts</strong>.
             </p>
 
+            {!walletChainReady && (
+              <p className="helper-text warn-text">
+                Wallet connected. Please switch your wallet to {ARC_TESTNET_CHAIN.label} before paying.
+              </p>
+            )}
+
             <button
               className="success full public-pay-button"
               type="button"
-              disabled={status === 'paying' || status === 'confirming' || status === 'paid'}
+              disabled={
+                !walletChainReady ||
+                status === 'paying' ||
+                status === 'confirming' ||
+                status === 'paid'
+              }
               onClick={payWithWallet}
             >
               {status === 'paying' || status === 'confirming'

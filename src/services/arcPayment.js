@@ -1,5 +1,5 @@
 import { arcTestnet } from '../chains/arcTestnet.js';
-import { connectEvmWallet, ensureEvmChain, getInjectedEthereum, isValidEvmAddress } from './evmWallet.js';
+import { connectEvmWallet, ensureEvmChain, getActiveEvmProvider, isValidEvmAddress } from './evmWallet.js';
 import { DISPLAY_UNITS_PER_USDC } from '../utils/format.js';
 
 const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
@@ -63,8 +63,8 @@ export async function connectArcTestnetWallet() {
   return connectEvmWallet(ARC_TESTNET_CHAIN);
 }
 
-export async function sendArcTestnetUsdcPayment({ from, to, rawAmount }) {
-  const ethereum = getInjectedEthereum();
+export async function sendArcTestnetUsdcPayment({ from, to, rawAmount, provider }) {
+  const ethereum = provider || getActiveEvmProvider();
 
   if (!ethereum) {
     throw new Error('No EVM wallet found.');
@@ -74,7 +74,7 @@ export async function sendArcTestnetUsdcPayment({ from, to, rawAmount }) {
   assertAddress(to, 'store receiver wallet');
   assertAddress(ARC_USDC.address, 'Arc USDC token');
 
-  await ensureEvmChain(ARC_TESTNET_CHAIN);
+  await ensureEvmChain(ARC_TESTNET_CHAIN, ethereum);
 
   return ethereum.request({
     method: 'eth_sendTransaction',
@@ -89,8 +89,8 @@ export async function sendArcTestnetUsdcPayment({ from, to, rawAmount }) {
   });
 }
 
-export async function waitForArcTestnetReceipt(txHash, { timeoutMs = 90000, intervalMs = 1000 } = {}) {
-  const ethereum = getInjectedEthereum();
+export async function waitForArcTestnetReceipt(txHash, { timeoutMs = 90000, intervalMs = 1000, provider } = {}) {
+  const ethereum = provider || getActiveEvmProvider();
 
   if (!ethereum) {
     throw new Error('No EVM wallet found.');
