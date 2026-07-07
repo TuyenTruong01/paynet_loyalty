@@ -10,7 +10,7 @@ import {
   ARC_TESTNET_CHAIN,
   ARC_USDC,
 } from '../services/arcPayment.js';
-import { getActiveEvmProvider } from '../services/evmWallet.js';
+import { ensureEvmChain, getActiveEvmProvider } from '../services/evmWallet.js';
 import { recordApointPaymentProof } from '../services/apointProofService.js';
 import { formatPoints, money, pointsFromRaw, pointsToOnchainUnits, rawFromPoints, redeemablePointsFromRaw, shortAddress } from '../utils/format.js';
 
@@ -178,6 +178,7 @@ export default function CustomerCheckoutPage({
   const [customerWallet, setCustomerWallet] = useState('');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletChainReady, setWalletChainReady] = useState(false);
+  const [switchingChain, setSwitchingChain] = useState(false);
   const [walletCustomer, setWalletCustomer] = useState(null);
   const [availablePoints, setAvailablePoints] = useState(0);
 
@@ -307,6 +308,7 @@ export default function CustomerCheckoutPage({
       setAvailablePoints(0);
       setUsePoints(false);
       setRedeemInput(0);
+      setSwitchingChain(false);
     };
 
     syncChain();
@@ -367,6 +369,32 @@ export default function CustomerCheckoutPage({
       setUsePoints(false);
       setRedeemInput(0);
       setErrorMessage(error.message || 'Cannot connect wallet.');
+    }
+  }
+
+  async function switchToArcNetwork() {
+    setErrorMessage('');
+    setSwitchingChain(true);
+
+    try {
+      const ethereum = getActiveEvmProvider();
+
+      if (!ethereum) {
+        throw new Error('No connected wallet found. Please connect your wallet first.');
+      }
+
+      await ensureEvmChain(ARC_TESTNET_CHAIN, ethereum);
+      setWalletChainReady(true);
+      setErrorMessage('');
+    } catch (error) {
+      console.error(error);
+      setWalletChainReady(false);
+      setErrorMessage(
+        error.message ||
+        `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`
+      );
+    } finally {
+      setSwitchingChain(false);
     }
   }
 
@@ -738,9 +766,20 @@ export default function CustomerCheckoutPage({
             </p>
 
             {!walletChainReady && (
-              <p className="helper-text warn-text">
-                Wallet connected. Please switch your wallet to {ARC_TESTNET_CHAIN.label} before paying.
-              </p>
+              <>
+                <p className="helper-text warn-text">
+                  Wallet connected. Please switch your wallet to {ARC_TESTNET_CHAIN.label} before paying.
+                </p>
+                <button
+                  className="secondary full public-pay-button"
+                  type="button"
+                  disabled={switchingChain || status === 'paying' || status === 'confirming' || status === 'paid'}
+                  onClick={switchToArcNetwork}
+                >
+                  {switchingChain ? <RefreshCw className="spin" size={16} /> : <Wallet size={16} />}
+                  {switchingChain ? 'Switching network...' : `Switch to ${ARC_TESTNET_CHAIN.label}`}
+                </button>
+              </>
             )}
 
             <button
