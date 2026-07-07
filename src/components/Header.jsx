@@ -17,7 +17,7 @@ export default function Header({
 }) {
   const displayWallet = currentWallet || staff?.wallet || '';
   const staffName = staff?.name || (isManager ? 'Store Manager' : 'Paynet Staff');
-  const selectedNetwork = paymentChains.some(chain => chain.label === network) ? network : 'Avalanche Fuji';
+  const selectedNetwork = paymentChains.some(chain => chain.label === network) ? network : 'Arc Testnet';
 
   return (
     <header className="topbar">

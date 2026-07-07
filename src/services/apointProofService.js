@@ -1,5 +1,5 @@
 import { ensureEvmChain, getInjectedEthereum, isValidEvmAddress } from './evmWallet.js';
-import { AVALANCHE_FUJI_CHAIN, fujiTxUrl, waitForAvalancheFujiReceipt } from './avalanchePayment.js';
+import { ARC_TESTNET_CHAIN, arcTxUrl, waitForArcTestnetReceipt } from './arcPayment.js';
 
 const RECORD_PAYMENT_SELECTOR = '0x78102d43';
 
@@ -8,6 +8,14 @@ export const APOINT_PAYMENT_PROOF_ADDRESS = import.meta.env?.VITE_APOINT_PAYMENT
 function assertAddress(address, label = 'address') {
   if (!isValidEvmAddress(address)) {
     throw new Error(`Invalid ${label}: ${address || '(empty)'}`);
+  }
+}
+
+function assertNonZeroAddress(address, label = 'address') {
+  assertAddress(address, label);
+
+  if (/^0x0{40}$/i.test(String(address).trim())) {
+    throw new Error(`Invalid ${label}: zero address. Deploy the Arc proof contract and set VITE_APOINT_PAYMENT_PROOF_ADDRESS.`);
   }
 }
 
@@ -69,9 +77,9 @@ export async function recordApointPaymentProof({
   assertAddress(from, 'signer wallet');
   assertAddress(customerWallet, 'customer wallet');
   assertAddress(storeWallet, 'store receiver wallet');
-  assertAddress(APOINT_PAYMENT_PROOF_ADDRESS, 'ApointPaymentProof contract');
+  assertNonZeroAddress(APOINT_PAYMENT_PROOF_ADDRESS, 'ApointPaymentProof contract');
 
-  await ensureEvmChain(AVALANCHE_FUJI_CHAIN);
+  await ensureEvmChain(ARC_TESTNET_CHAIN);
 
   const txHash = await ethereum.request({
     method: 'eth_sendTransaction',
@@ -91,14 +99,14 @@ export async function recordApointPaymentProof({
     ],
   });
 
-  const receipt = await waitForAvalancheFujiReceipt(txHash);
+  const receipt = await waitForArcTestnetReceipt(txHash);
 
   return {
     txHash,
     blockNumber: receipt?.blockNumber,
-    chainId: AVALANCHE_FUJI_CHAIN.chainIdDecimal,
+    chainId: ARC_TESTNET_CHAIN.chainIdDecimal,
     contractAddress: APOINT_PAYMENT_PROOF_ADDRESS,
-    explorerUrl: fujiTxUrl(txHash),
+    explorerUrl: arcTxUrl(txHash),
     receipt,
   };
 }

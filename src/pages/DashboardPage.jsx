@@ -1,4 +1,4 @@
-import { money } from '../utils/format.js';
+import { formatPoints, money } from '../utils/format.js';
 
 function SimpleBarChart({ title, rows }) {
   const max = Math.max(...rows.map(row => row.value), 1);
@@ -33,7 +33,7 @@ export default function DashboardPage({ orders, customers, products }) {
     ['Today Revenue', money(revenue), 'Crypto checkout volume', 'green'],
     ['Orders Today', paidOrders.length || orders.length, 'Paid and pending invoices', 'blue'],
     ['Customers', customers.length, 'Wallet-linked customers', 'orange'],
-    ['Loyalty Points', totalPoints.toLocaleString('en-US'), 'Available customer points', 'green'],
+    ['Loyalty Points', formatPoints(totalPoints), 'Available customer points', 'green'],
     ['Low Stock', lowStock.length, 'Products below threshold', 'red'],
   ];
 
@@ -53,7 +53,7 @@ export default function DashboardPage({ orders, customers, products }) {
         <SimpleBarChart title="Revenue Trend" rows={[
           { label: 'Paid Volume', value: Math.max(revenue, 1), display: money(revenue) },
           { label: 'Average Order', value: paidOrders.length ? revenue / paidOrders.length : 0, display: money(paidOrders.length ? revenue / paidOrders.length : 0) },
-          { label: 'Loyalty Value', value: totalPoints * 100, display: `${totalPoints} pts` },
+          { label: 'Loyalty Value', value: totalPoints * 100, display: `${formatPoints(totalPoints)} pts` },
         ]} />
         <SimpleBarChart title="Best Sellers" rows={bestSellers} />
       </div>

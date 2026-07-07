@@ -1,5 +1,5 @@
 import { CheckCircle2, Copy, ExternalLink, Minus, Plus, QrCode, ReceiptText, RefreshCw, Search, Trash2, Wallet } from 'lucide-react';
-import { money, shortAddress } from '../utils/format.js';
+import { formatPoints, money, redeemablePointsFromRaw, shortAddress } from '../utils/format.js';
 
 export default function POSPanel({
   invoiceActive,
@@ -28,6 +28,7 @@ export default function POSPanel({
   onCreateCheckout,
   onConfirmMockPayment,
   checkout,
+  checkoutPayment,
   paymentStatus,
   receiverWallet,
 }) {
@@ -54,8 +55,12 @@ export default function POSPanel({
 
   const canUsePoints = selectedCustomer?.id && Number(selectedCustomer.points || 0) > 0;
   const maxDiscountRaw = Math.floor(grossTotal * 0.2);
-  const pointsCap = Math.min(Number(selectedCustomer?.points || 0), Math.floor(maxDiscountRaw / 100));
+  const pointsCap = Math.min(Number(selectedCustomer?.points || 0), redeemablePointsFromRaw(maxDiscountRaw));
   const lockedButtonStyle = !canUsePos ? { opacity: 0.45, cursor: 'not-allowed' } : undefined;
+  const isPaid = paymentStatus === 'paid' || checkoutPayment?.paymentStatus === 'paid';
+  const isChecking = paymentStatus === 'checking';
+  const finalPayable = checkoutPayment?.total ?? total;
+  const paidWithWallet = isPaid && checkoutPayment?.paymentMode !== 'manual-cash-payment';
 
   return (
     <section className="pos-panel panel">
@@ -164,7 +169,7 @@ export default function POSPanel({
             <select value={customerId || ''} onChange={event => setCustomerId(event.target.value)} disabled={!canUsePos}>
               <option value="">Guest checkout</option>
               {customers.map(customer => (
-                <option value={customer.id} key={customer.id}>{shortAddress(customer.wallet)} · {customer.points} pts</option>
+                <option value={customer.id} key={customer.id}>{shortAddress(customer.wallet)} · {formatPoints(customer.points)} pts</option>
               ))}
             </select>
 
@@ -173,10 +178,10 @@ export default function POSPanel({
               <p><span>Subtotal</span><strong>{money(subtotal)}</strong></p>
               <p><span>Tax ({taxRate}%)</span><strong>{money(taxAmount)}</strong></p>
               <p><span>Total before points</span><strong>{money(grossTotal)}</strong></p>
-              <p><span>Redeemed Points</span><strong>{pointsUsed} pts</strong></p>
+              <p><span>Redeemed Points</span><strong>{formatPoints(pointsUsed)} pts</strong></p>
               <p><span>Redeemed Value</span><strong>-{money(pointsDiscount)}</strong></p>
               <p className="total"><span>Payable</span><strong>{money(total)}</strong></p>
-              <p><span>Estimated Earn</span><strong>{pointsEarned} pts</strong></p>
+              <p><span>Estimated Earn</span><strong>{formatPoints(pointsEarned)} pts</strong></p>
             </div>
 
             <label className={`check-line ${!canUsePoints || !canUsePos ? 'muted' : ''}`}>
@@ -188,7 +193,7 @@ export default function POSPanel({
               />
               Customer redeems loyalty points before signing
             </label>
-            {canUsePoints && <small className="helper-text">Max demo redemption: {pointsCap} pts, capped at 20% of the invoice total.</small>}
+            {canUsePoints && <small className="helper-text">Max demo redemption: {formatPoints(pointsCap)} pts, capped at 20% of the invoice total.</small>}
 
             <div className="payment-method-card">
               <Wallet size={18} />
@@ -210,16 +215,30 @@ export default function POSPanel({
                 Generate Checkout QR
               </button>
             ) : (
-              <button
-                className="success full"
-                type="button"
-                disabled={!canUsePos || paymentStatus === 'checking' || paymentStatus === 'paid'}
-                onClick={canUsePos ? onConfirmMockPayment : undefined}
-                style={lockedButtonStyle}
-              >
-                {paymentStatus === 'checking' ? <RefreshCw className="spin" size={16} /> : <CheckCircle2 size={16} />}
-                {paymentStatus === 'paid' ? 'Paid' : 'Manual Confirm Payment'}
-              </button>
+              <div className="qr-actions">
+                {isPaid ? (
+                  <button className="success full" type="button" disabled>
+                    <CheckCircle2 size={16} /> Payment Confirmed
+                  </button>
+                ) : (
+                  <>
+                    <button className="ghost full" type="button" disabled>
+                      {isChecking ? <RefreshCw className="spin" size={16} /> : <Wallet size={16} />}
+                      {isChecking ? 'Checking wallet payment...' : 'Waiting for customer wallet payment'}
+                    </button>
+                    <button
+                      className="success full"
+                      type="button"
+                      disabled={!canUsePos || isChecking}
+                      onClick={canUsePos ? onConfirmMockPayment : undefined}
+                      style={lockedButtonStyle}
+                    >
+                      {isChecking ? <RefreshCw className="spin" size={16} /> : <CheckCircle2 size={16} />}
+                      Manual Confirm Cash Payment
+                    </button>
+                  </>
+                )}
+              </div>
             )}
 
             {checkout && (
@@ -263,8 +282,46 @@ export default function POSPanel({
                 <div className="payment-info">
                   <p><span>Network</span><strong>Store payment network</strong></p>
                   <p><span>Receiver</span><strong>{shortAddress(receiverWallet)}</strong></p>
-                  <p><span>Payable</span><strong>{money(total)}</strong></p>
+                  <p><span>{isPaid ? 'Paid Amount' : 'Payable'}</span><strong>{money(finalPayable)}</strong></p>
+                  {isPaid && <p><span>Payment Type</span><strong>{paidWithWallet ? 'Wallet USDC' : 'Cash'}</strong></p>}
+                  {isPaid && checkoutPayment?.pointsUsed > 0 && (
+                    <p><span>Points Used</span><strong>{formatPoints(checkoutPayment.pointsUsed)} pts</strong></p>
+                  )}
+                  {isPaid && checkoutPayment?.pointsEarned > 0 && (
+                    <p><span>Points Earned</span><strong>{formatPoints(checkoutPayment.pointsEarned)} pts</strong></p>
+                  )}
+                  {isPaid && checkoutPayment?.payerWallet && (
+                    <p><span>Payer</span><strong>{shortAddress(checkoutPayment.payerWallet)}</strong></p>
+                  )}
                 </div>
+
+                {isPaid && (
+                  <p className="payment-confirmation-note">
+                    <CheckCircle2 size={16} /> Payment confirmed. This invoice is marked as paid.
+                  </p>
+                )}
+
+                {checkoutPayment?.txHash && (
+                  <a
+                    className="explorer-link"
+                    href={checkoutPayment.paymentExplorerUrl || `https://testnet.arcscan.app/tx/${checkoutPayment.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View USDC payment transaction <ExternalLink size={14} />
+                  </a>
+                )}
+
+                {checkoutPayment?.proofTxHash && (
+                  <a
+                    className="explorer-link"
+                    href={checkoutPayment.proofExplorerUrl || `https://testnet.arcscan.app/tx/${checkoutPayment.proofTxHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View APoint proof transaction <ExternalLink size={14} />
+                  </a>
+                )}
 
                 <div className="qr-actions">
                   <button type="button" className="ghost full" onClick={copyCheckoutLink}>

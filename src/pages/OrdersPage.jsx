@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Eye, FileDown, Printer } from 'lucide-react';
-import { formatDate, formatTime, money, shortAddress } from '../utils/format.js';
+import { formatDate, formatPoints, formatTime, money, shortAddress } from '../utils/format.js';
 
 function startOfDay(date) {
   const d = new Date(date);
@@ -38,7 +38,7 @@ function buildReceiptHtml(order, taxRate) {
       <div class="box">
         <div class="right">Subtotal: <b>${money(subtotal)}</b></div>
         <div class="right">Tax ${taxRate}%: <b>${money(taxAmount)}</b></div>
-        <div class="right">Redeemed Points: <b>${order.pointsUsed || 0} pts</b></div>
+        <div class="right">Redeemed Points: <b>${formatPoints(order.pointsUsed)} pts</b></div>
         <div class="right">Redeemed Value: <b>-${money(redeemedValue)}</b></div>
         <div class="right total">Paid Amount: ${money(finalPaid)}</div>
       </div>
@@ -185,7 +185,7 @@ export default function OrdersPage({ orders, taxRate = 10 }) {
             <div className="receipt-totals">
               <p><span>Subtotal</span><strong>{money(selectedOrder.subtotal || selectedOrder.total)}</strong></p>
               <p><span>Tax ({taxRate}%)</span><strong>{money(Math.round((selectedOrder.subtotal || 0) * taxRate / 100))}</strong></p>
-              <p><span>Redeemed Points</span><strong>{selectedOrder.pointsUsed || 0} pts</strong></p>
+              <p><span>Redeemed Points</span><strong>{formatPoints(selectedOrder.pointsUsed)} pts</strong></p>
               <p><span>Redeemed Value</span><strong>-{money(selectedOrder.pointsDiscount || 0)}</strong></p>
               <p className="total"><span>Paid Amount</span><strong>{money(selectedOrder.total)}</strong></p>
             </div>

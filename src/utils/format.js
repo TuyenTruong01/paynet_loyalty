@@ -1,5 +1,7 @@
 export const DISPLAY_UNITS_PER_USDC = 10000;
-export const POINT_VALUE_RAW = 100; // 100 points = 1.00 USDC, with raw DB display unit 10,000.
+export const EARN_RAW_PER_POINT = DISPLAY_UNITS_PER_USDC * 100;
+export const POINT_VALUE_RAW = DISPLAY_UNITS_PER_USDC * 0.2;
+export const POINTS_ONCHAIN_SCALE = 10000;
 
 export function toUSDC(rawAmount = 0) {
   return Number(rawAmount || 0) / DISPLAY_UNITS_PER_USDC;
@@ -14,11 +16,26 @@ export function money(rawAmount = 0) {
 }
 
 export function rawFromPoints(points = 0) {
-  return Number(points || 0) * POINT_VALUE_RAW;
+  return Math.round(Number(points || 0) * POINT_VALUE_RAW);
 }
 
 export function pointsFromRaw(rawAmount = 0) {
-  return Math.floor(Number(rawAmount || 0) / DISPLAY_UNITS_PER_USDC);
+  return Number((Number(rawAmount || 0) / EARN_RAW_PER_POINT).toFixed(4));
+}
+
+export function redeemablePointsFromRaw(rawAmount = 0) {
+  return Number((Number(rawAmount || 0) / POINT_VALUE_RAW).toFixed(4));
+}
+
+export function formatPoints(points = 0) {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  }).format(Number(points || 0));
+}
+
+export function pointsToOnchainUnits(points = 0) {
+  return Math.round(Number(points || 0) * POINTS_ONCHAIN_SCALE);
 }
 
 export function shortAddress(address = '') {

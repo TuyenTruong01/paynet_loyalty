@@ -7,8 +7,8 @@
     "build": "node ./node_modules/vite/bin/vite.js build",
     "preview": "node ./node_modules/vite/bin/vite.js preview --host 0.0.0.0",
     "compile:contracts": "hardhat compile",
-    "deploy:fuji": "hardhat run scripts/deployApointPaymentProof.js --network fuji",
-    "test:proof:fuji": "hardhat run scripts/testRecordPaymentProof.js --network fuji"
+    "deploy:arc": "hardhat run scripts/deployApointPaymentProof.js --network arc",
+    "test:proof:arc": "hardhat run scripts/testRecordPaymentProof.js --network arc"
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",

@@ -1,15 +1,9 @@
 import { arcTestnet } from './arcTestnet.js';
-import { avalanche } from './avalanche.js';
-import { bnbChain } from './bnb.js';
-import { arbitrum } from './arbitrum.js';
 
-export const DEFAULT_CHAIN_CODE = 'avalanche';
+export const DEFAULT_CHAIN_CODE = 'arc-testnet';
 
 export const paymentChains = [
   arcTestnet,
-  avalanche,
-  bnbChain,
-  arbitrum,
 ];
 
 const chainByCode = paymentChains.reduce((map, chain) => {

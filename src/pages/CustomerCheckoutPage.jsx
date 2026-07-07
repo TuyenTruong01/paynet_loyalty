@@ -3,15 +3,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase, hasSupabaseConfig } from '../lib/supabaseClient.js';
 import { confirmCheckoutPayment, loadCheckoutOrder } from '../services/paynetService.js';
 import {
-  connectAvalancheFujiWallet,
-  fujiTxUrl,
-  sendAvalancheFujiUsdcPayment,
-  waitForAvalancheFujiReceipt,
-  AVALANCHE_FUJI_CHAIN,
-  FUJI_USDC,
-} from '../services/avalanchePayment.js';
+  connectArcTestnetWallet,
+  arcTxUrl,
+  sendArcTestnetUsdcPayment,
+  waitForArcTestnetReceipt,
+  ARC_TESTNET_CHAIN,
+  ARC_USDC,
+} from '../services/arcPayment.js';
 import { recordApointPaymentProof } from '../services/apointProofService.js';
-import { money, pointsFromRaw, rawFromPoints, shortAddress } from '../utils/format.js';
+import { formatPoints, money, pointsFromRaw, pointsToOnchainUnits, rawFromPoints, redeemablePointsFromRaw, shortAddress } from '../utils/format.js';
 
 function getCheckoutToken() {
   const params = new URLSearchParams(window.location.search);
@@ -242,7 +242,7 @@ export default function CustomerCheckoutPage({
     setErrorMessage('');
 
     try {
-      const wallet = await connectAvalancheFujiWallet();
+      const wallet = await connectArcTestnetWallet();
       const walletAddress = wallet.address;
 
       setCustomerWallet(walletAddress);
@@ -298,7 +298,7 @@ export default function CustomerCheckoutPage({
     branch: order?.storeBranch || store?.branch || 'Checkout',
   };
   const checkoutReceiverWallet = order?.receiverWallet || receiverWallet;
-  const paymentTokenSymbol = FUJI_USDC.symbol;
+  const paymentTokenSymbol = ARC_USDC.symbol;
 
   const subtotal = useMemo(() => {
     if (!order) return 0;
@@ -318,10 +318,10 @@ export default function CustomerCheckoutPage({
   const totalBeforePoints = subtotal + taxAmount;
 
   const maxDiscountRaw = Math.floor(totalBeforePoints * 0.2);
-  const maxRedeemPoints = Math.min(availablePoints, Math.floor(maxDiscountRaw / 100));
+  const maxRedeemPoints = Math.min(availablePoints, redeemablePointsFromRaw(maxDiscountRaw));
   const safeRedeemInput = Math.max(
     0,
-    Math.min(maxRedeemPoints, Math.floor(Number(redeemInput) || 0))
+    Math.min(maxRedeemPoints, Number(redeemInput) || 0)
   );
   const redeemPoints = usePoints ? safeRedeemInput : 0;
 
@@ -337,7 +337,7 @@ export default function CustomerCheckoutPage({
 
     setRedeemInput(current => Math.max(
       0,
-      Math.min(maxRedeemPoints, Math.floor(Number(current) || 0))
+      Math.min(maxRedeemPoints, Number(current) || 0)
     ));
   }, [maxRedeemPoints, usePoints]);
 
@@ -349,7 +349,7 @@ export default function CustomerCheckoutPage({
   function updateRedeemPoints(value) {
     const next = Math.max(
       0,
-      Math.min(maxRedeemPoints, Math.floor(Number(value) || 0))
+      Math.min(maxRedeemPoints, Number(value) || 0)
     );
 
     setRedeemInput(next);
@@ -357,7 +357,7 @@ export default function CustomerCheckoutPage({
   }
 
   function updateRedeemPercent(percent) {
-    updateRedeemPoints(Math.floor(maxRedeemPoints * percent / 100));
+    updateRedeemPoints(Number((maxRedeemPoints * percent / 100).toFixed(4)));
   }
 
   async function payWithWallet() {
@@ -371,7 +371,7 @@ export default function CustomerCheckoutPage({
     try {
       const wallet = walletConnected && customerWallet
         ? { address: customerWallet }
-        : await connectAvalancheFujiWallet();
+        : await connectArcTestnetWallet();
 
       const walletAddress = wallet.address;
 
@@ -393,7 +393,7 @@ export default function CustomerCheckoutPage({
 
       setStatus('confirming');
 
-      const paymentTxHash = await sendAvalancheFujiUsdcPayment({
+      const paymentTxHash = await sendArcTestnetUsdcPayment({
         from: walletAddress,
         to: checkoutReceiverWallet,
         rawAmount: payable,
@@ -401,7 +401,7 @@ export default function CustomerCheckoutPage({
 
       setTxHash(paymentTxHash);
 
-      const paymentReceipt = await waitForAvalancheFujiReceipt(paymentTxHash);
+      const paymentReceipt = await waitForArcTestnetReceipt(paymentTxHash);
 
       if (String(paymentReceipt?.status || '').toLowerCase() === '0x0') {
         throw new Error('USDC payment reverted. The invoice was not marked as paid.');
@@ -413,7 +413,7 @@ export default function CustomerCheckoutPage({
         customerWallet: walletAddress,
         storeWallet: checkoutReceiverWallet,
         amount: payable,
-        points: earnedPoints,
+        points: pointsToOnchainUnits(earnedPoints),
       });
 
       setProofTxHash(proof.txHash);
@@ -424,18 +424,20 @@ export default function CustomerCheckoutPage({
           payerWallet: walletAddress,
           txHash: paymentTxHash,
           rawResponse: {
-            mode: 'avalanche-fuji-usdc-payment-with-apoint-proof',
-            chain_id: AVALANCHE_FUJI_CHAIN.chainIdDecimal,
-            network: AVALANCHE_FUJI_CHAIN.code,
+            mode: 'arc-testnet-usdc-payment-with-apoint-proof',
+            chain_id: ARC_TESTNET_CHAIN.chainIdDecimal,
+            network: ARC_TESTNET_CHAIN.code,
             receiver_wallet: checkoutReceiverWallet,
             payable_raw: payable,
             redeemed_points: redeemPoints,
             redeemed_value_raw: redeemedValue,
             earned_points: earnedPoints,
-            payment_token: FUJI_USDC.address,
+            proof_points_scale: 10000,
+            proof_points_units: pointsToOnchainUnits(earnedPoints),
+            payment_token: ARC_USDC.address,
             payment_tx_hash: paymentTxHash,
             payment_block_number: paymentReceipt?.blockNumber || '',
-            payment_explorer_url: fujiTxUrl(paymentTxHash),
+            payment_explorer_url: arcTxUrl(paymentTxHash),
             proof_tx_hash: proof.txHash,
             proof_block_number: proof.blockNumber || '',
             proof_contract_address: proof.contractAddress,
@@ -452,7 +454,7 @@ export default function CustomerCheckoutPage({
     } catch (error) {
       console.error(error);
       setStatus('ready');
-      setErrorMessage(error.message || 'Avalanche Fuji payment failed.');
+      setErrorMessage(error.message || 'Arc Testnet payment failed.');
     }
   }
 
@@ -538,7 +540,7 @@ export default function CustomerCheckoutPage({
           <p><span>Total before points</span><strong>{money(totalBeforePoints)}</strong></p>
           <p>
             <span>Available points</span>
-            <strong>{walletConnected ? availablePoints : 0} pts</strong>
+            <strong>{formatPoints(walletConnected ? availablePoints : 0)} pts</strong>
           </p>
           <p><span>Redeemed value</span><strong>-{money(redeemedValue)}</strong></p>
           <p className="total"><span>Payable</span><strong>{money(payable)}</strong></p>
@@ -587,6 +589,7 @@ export default function CustomerCheckoutPage({
                       type="number"
                       min="0"
                       max={maxRedeemPoints}
+                      step="0.0001"
                       value={safeRedeemInput}
                       onChange={event => updateRedeemPoints(event.target.value)}
                     />
@@ -608,7 +611,7 @@ export default function CustomerCheckoutPage({
                     <button
                       key={percent}
                       type="button"
-                      className={safeRedeemInput === Math.floor(maxRedeemPoints * percent / 100) ? 'active' : ''}
+                      className={safeRedeemInput === Number((maxRedeemPoints * percent / 100).toFixed(4)) ? 'active' : ''}
                       onClick={() => updateRedeemPercent(percent)}
                     >
                       {percent}%
@@ -616,13 +619,13 @@ export default function CustomerCheckoutPage({
                   ))}
                 </div>
 
-                <small>Max redeem: {maxRedeemPoints} pts</small>
+                <small>Max redeem: {formatPoints(maxRedeemPoints)} pts</small>
               </div>
             )}
 
             <p className="helper-text">
               Loyalty account: <strong>{walletCustomer?.full_name || shortAddress(customerWallet)}</strong>.
-              New loyalty points will be earned from the actual paid amount: <strong>{earnedPoints} pts</strong>.
+              New loyalty points will be earned from the actual paid amount: <strong>{formatPoints(earnedPoints)} pts</strong>.
             </p>
 
             <button
@@ -654,7 +657,7 @@ export default function CustomerCheckoutPage({
         {txHash && (
           <a
             className="explorer-link"
-            href={fujiTxUrl(txHash)}
+            href={arcTxUrl(txHash)}
             target="_blank"
             rel="noreferrer"
           >
@@ -665,7 +668,7 @@ export default function CustomerCheckoutPage({
         {proofTxHash && (
           <a
             className="explorer-link"
-            href={fujiTxUrl(proofTxHash)}
+            href={arcTxUrl(proofTxHash)}
             target="_blank"
             rel="noreferrer"
           >

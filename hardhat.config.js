@@ -1,7 +1,7 @@
 require('@nomicfoundation/hardhat-ethers');
 require('dotenv').config();
 
-const FUJI_RPC_URL = process.env.FUJI_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc';
+const ARC_RPC_URL = process.env.ARC_RPC_URL || 'https://rpc.testnet.arc.network';
 const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY || '';
 
 module.exports = {
@@ -15,9 +15,9 @@ module.exports = {
     },
   },
   networks: {
-    fuji: {
-      url: FUJI_RPC_URL,
-      chainId: 43113,
+    arc: {
+      url: ARC_RPC_URL,
+      chainId: 5042002,
       accounts: DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [],
     },
   },

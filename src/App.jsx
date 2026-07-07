@@ -23,9 +23,11 @@ import { connectEvmWallet } from './services/evmWallet.js';
 import { getPaymentChain } from './chains/index.js';
 import {
   addWarehouseRecord,
+  confirmCheckoutPayment,
   createCheckoutOrder,
   createStoreRecord,
   disableStaffRecord,
+  loadCheckoutPaymentStatus,
   loadPaynetNetwork,
   saveProductRecord,
   saveStaffRecord,
@@ -60,8 +62,9 @@ function isStoreOwnerRole(roleKey = '') {
 
 function connectChainCode(store = {}) {
   const code = String(store?.networkCode || '').toLowerCase();
+  if (code.includes('arc')) return 'arc-testnet';
   if (code.includes('avalanche') || code.includes('fuji') || code.includes('avax')) return 'avalanche';
-  return code || 'avalanche';
+  return code || 'arc-testnet';
 }
 
 function ensureStoreProducts(store) {
@@ -127,6 +130,7 @@ export default function App() {
   const [productSearch, setProductSearch] = useState('');
   const [pointsUsed, setPointsUsed] = useState(0);
   const [checkout, setCheckout] = useState(null);
+  const [checkoutPayment, setCheckoutPayment] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState('idle');
   const [editingProduct, setEditingProduct] = useState(null);
 
@@ -155,6 +159,45 @@ export default function App() {
   useEffect(() => {
     reloadNetwork();
   }, []);
+
+  useEffect(() => {
+    if (!hasSupabaseConfig || !checkout?.order_id) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    async function refreshCheckoutPayment() {
+      try {
+        const status = await loadCheckoutPaymentStatus(checkout.order_id);
+        if (cancelled || !status) return;
+
+        setCheckoutPayment(status);
+
+        if (status.paymentStatus === 'paid' || status.status === 'paid') {
+          setPaymentStatus('paid');
+          if (timer) window.clearInterval(timer);
+          await reloadNetwork();
+          return;
+        }
+
+        setPaymentStatus('pending');
+      } catch (error) {
+        console.warn('Cannot refresh checkout payment status:', error.message || error);
+        if (!cancelled) setPaymentStatus('pending');
+      }
+    }
+
+    setPaymentStatus('checking');
+    refreshCheckoutPayment();
+    timer = window.setInterval(refreshCheckoutPayment, 2500);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [checkout?.order_id]);
 
   const roleContext = useMemo(
     () => resolveNetworkRole(
@@ -269,6 +312,7 @@ export default function App() {
     setInvoiceActive(true);
     setCart([]);
     setCheckout(null);
+    setCheckoutPayment(null);
     setPaymentStatus('idle');
     setPointsUsed(0);
     setProductSearch('');
@@ -278,6 +322,7 @@ export default function App() {
     if (!requireStoreAccess('add products to an invoice')) return;
     if (!invoiceActive) setInvoiceActive(true);
     setCheckout(null);
+    setCheckoutPayment(null);
     setPaymentStatus('idle');
     setCart(current => {
       const exists = current.find(item => item.id === product.id);
@@ -374,6 +419,7 @@ export default function App() {
 
     saveStoredCheckout(pendingOrder);
     setCheckout(order);
+    setCheckoutPayment(null);
     setPaymentStatus('pending');
     if (hasSupabaseConfig) await reloadNetwork();
   }
@@ -381,6 +427,40 @@ export default function App() {
   async function handleConfirmMockPayment() {
     if (!requireStoreAccess('confirm payment')) return;
     if (!checkout) return;
+    setPaymentStatus('checking');
+
+    if (hasSupabaseConfig && checkout.order_id && !String(checkout.order_id).startsWith('demo')) {
+      try {
+        await confirmCheckoutPayment({
+          orderId: checkout.order_id,
+          payerWallet: selectedCustomer?.wallet || '',
+          txHash: '',
+          rawResponse: {
+            mode: 'manual-cash-payment',
+            receiver_wallet: activeStore?.receiverWallet || '',
+            payable_raw: total,
+            redeemed_points: pointsUsed,
+            redeemed_value_raw: pointsDiscount,
+            earned_points: pointsEarned,
+            wallet_customer_id: selectedCustomer?.id || null,
+            wallet_address: selectedCustomer?.wallet || '',
+          },
+        });
+
+        const status = await loadCheckoutPaymentStatus(checkout.order_id);
+        setCheckoutPayment(status);
+        setPaymentStatus('paid');
+        await reloadNetwork();
+        setCart([]);
+        setInvoiceActive(false);
+        return;
+      } catch (error) {
+        console.error(error);
+        setPaymentStatus('pending');
+        alert(error.message || 'Cannot confirm cash payment.');
+        return;
+      }
+    }
 
     const paidOrder = {
       id: checkout.order_id,
@@ -532,6 +612,7 @@ export default function App() {
     setInvoiceActive(false);
     setCart([]);
     setCheckout(null);
+    setCheckoutPayment(null);
     setPaymentStatus('idle');
     setPointsUsed(0);
   }
@@ -802,6 +883,7 @@ export default function App() {
           onCreateCheckout={handleCreateCheckout}
           onConfirmMockPayment={handleConfirmMockPayment}
           checkout={checkout}
+          checkoutPayment={checkoutPayment}
           paymentStatus={paymentStatus}
           receiverWallet={safeReceiverWallet}
           products={common.products}

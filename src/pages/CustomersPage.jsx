@@ -1,4 +1,4 @@
-import { formatTime, money, shortAddress } from '../utils/format.js';
+import { formatPoints, formatTime, money, shortAddress } from '../utils/format.js';
 
 export default function CustomersPage({ customers }) {
   const sorted = [...customers].sort((a, b) => Number(b.totalSpent || 0) - Number(a.totalSpent || 0));
@@ -27,7 +27,7 @@ export default function CustomersPage({ customers }) {
             <tr key={customer.id}>
               <td>{index + 1}</td>
               <td><code title={customer.wallet}>{shortAddress(customer.wallet)}</code></td>
-              <td><strong>{Number(customer.points || 0).toLocaleString('en-US')} pts</strong></td>
+              <td><strong>{formatPoints(customer.points)} pts</strong></td>
               <td>{money(customer.totalSpent)}</td>
               <td>{formatTime(customer.createdAt)}</td>
               <td><button type="button" className="small-action">View History</button></td>

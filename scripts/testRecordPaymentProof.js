@@ -30,7 +30,7 @@ async function main() {
   const blockNumber = receipt?.blockNumber || '';
 
   console.log(`block number: ${blockNumber}`);
-  console.log(`Fuji explorer: https://testnet.snowtrace.io/tx/${tx.hash}`);
+  console.log(`Arc explorer: https://testnet.arcscan.app/tx/${tx.hash}`);
 }
 
 main().catch((error) => {

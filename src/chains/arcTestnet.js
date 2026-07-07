@@ -17,7 +17,7 @@ export const arcTestnet = {
     address: '0x3600000000000000000000000000000000000000',
   },
   proofRegistry: {
-    address: '0x7B9941Da31b2194Efc2881af3B35987EeF137AA6',
-    enabled: true,
+    address: '',
+    enabled: false,
   },
 };

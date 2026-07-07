@@ -105,7 +105,7 @@ function storeCategories(products = []) {
 async function syncStoreDefaultPaymentReceiver(storeId, receiverWallet) {
   if (!storeId || !receiverWallet) return;
 
-  const network = one(await supabase.from('payment_networks').select('id').eq('code', 'avalanche-fuji').maybeSingle());
+  const network = one(await supabase.from('payment_networks').select('id').eq('code', 'arc-testnet').maybeSingle());
   if (!network?.id) return;
 
   const token = one(await supabase
@@ -383,15 +383,15 @@ export async function createCheckoutOrder({
     total_price: row.price * row.qty,
   })));
 
-  const fujiMethod = one(await supabase
+  const arcMethod = one(await supabase
     .from('store_payment_methods')
     .select('*, payment_networks!inner(*), payment_tokens(*)')
     .eq('store_id', store.id)
     .eq('is_active', true)
-    .eq('payment_networks.code', 'avalanche-fuji')
+    .eq('payment_networks.code', 'arc-testnet')
     .maybeSingle());
 
-  const method = fujiMethod || one(await supabase
+  const method = arcMethod || one(await supabase
     .from('store_payment_methods')
     .select('*, payment_networks(*), payment_tokens(*)')
     .eq('store_id', store.id)
@@ -433,6 +433,45 @@ export async function loadCheckoutOrder(token) {
     networkCode: payment?.payment_networks?.code || payment?.network || 'arc-testnet',
     paymentNetwork: payment?.payment_networks || null,
     paymentToken: payment?.payment_tokens || null,
+  };
+}
+
+export async function loadCheckoutPaymentStatus(orderId) {
+  if (!hasSupabaseConfig || !supabase || !orderId) return null;
+
+  const order = one(await supabase
+    .from('orders')
+    .select('*, payments(*, payment_networks(*), payment_tokens(*))')
+    .eq('id', orderId)
+    .maybeSingle());
+
+  if (!order) return null;
+
+  const payment = Array.isArray(order.payments) ? order.payments[0] : null;
+  const rawResponse = payment?.raw_response || {};
+
+  return {
+    orderId: order.id,
+    code: order.code,
+    checkoutToken: order.checkout_token,
+    status: order.status || 'pending',
+    paymentStatus: order.payment_status || payment?.status || 'pending',
+    total: Number(order.total_amount || payment?.amount || 0),
+    subtotal: Number(order.subtotal || 0),
+    taxAmount: Number(order.tax_amount || 0),
+    pointsUsed: Number(order.apoints_redeemed || 0),
+    pointsDiscount: Number(order.discount_amount || 0),
+    pointsEarned: Number(order.apoints_earned || 0),
+    paidAt: order.paid_at || payment?.paid_at || '',
+    payerWallet: payment?.payer_wallet || rawResponse.wallet_address || '',
+    receiverWallet: payment?.receiver_wallet || rawResponse.receiver_wallet || '',
+    txHash: payment?.tx_hash || rawResponse.payment_tx_hash || '',
+    proofTxHash: payment?.proof_tx_hash || rawResponse.proof_tx_hash || '',
+    proofContractAddress: payment?.proof_contract_address || rawResponse.proof_contract_address || '',
+    paymentExplorerUrl: rawResponse.payment_explorer_url || '',
+    proofExplorerUrl: rawResponse.proof_explorer_url || '',
+    paymentMode: rawResponse.mode || '',
+    rawResponse,
   };
 }
 

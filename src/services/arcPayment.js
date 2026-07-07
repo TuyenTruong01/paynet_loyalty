@@ -1,31 +1,21 @@
+import { arcTestnet } from '../chains/arcTestnet.js';
 import { connectEvmWallet, ensureEvmChain, getInjectedEthereum, isValidEvmAddress } from './evmWallet.js';
 import { DISPLAY_UNITS_PER_USDC } from '../utils/format.js';
 
 const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
 
-export const AVALANCHE_FUJI_CHAIN = {
-  code: 'avalanche-fuji',
-  label: 'Avalanche Fuji',
-  family: 'evm',
-  chainIdDecimal: 43113,
-  chainIdHex: '0xa869',
-  rpcUrls: ['https://api.avax-test.network/ext/bc/C/rpc'],
-  explorerUrl: 'https://testnet.snowtrace.io',
-  nativeCurrency: {
-    name: 'Avalanche',
-    symbol: 'AVAX',
-    decimals: 18,
-  },
+export const ARC_TESTNET_CHAIN = {
+  ...arcTestnet,
+  chainIdDecimal: Number(import.meta.env?.VITE_ARC_TESTNET_CHAIN_ID || arcTestnet.chainIdDecimal),
 };
 
-export const FUJI_USDC = {
-  symbol: 'USDC',
-  decimals: 6,
-  address: import.meta.env?.VITE_AVAX_FUJI_USDC_ADDRESS || '0x5425890298aed601595a70AB815c96711a31Bc65',
+export const ARC_USDC = {
+  ...arcTestnet.paymentToken,
+  address: import.meta.env?.VITE_ARC_TESTNET_USDC_ADDRESS || arcTestnet.paymentToken.address,
 };
 
-export function fujiTxUrl(txHash = '') {
-  return txHash ? `${AVALANCHE_FUJI_CHAIN.explorerUrl}/tx/${txHash}` : '';
+export function arcTxUrl(txHash = '') {
+  return txHash ? `${ARC_TESTNET_CHAIN.explorerUrl}/tx/${txHash}` : '';
 }
 
 function assertAddress(address, label = 'address') {
@@ -53,14 +43,14 @@ function encodeUint256(value) {
   return big.toString(16).padStart(64, '0');
 }
 
-export function rawAmountToUsdcUnits(rawAmount = 0) {
+export function rawAmountToArcUsdcUnits(rawAmount = 0) {
   const raw = BigInt(Math.max(0, Math.round(Number(rawAmount || 0))));
-  const tokenBase = 10n ** BigInt(FUJI_USDC.decimals);
+  const tokenBase = 10n ** BigInt(ARC_USDC.decimals);
   return raw * (tokenBase / BigInt(DISPLAY_UNITS_PER_USDC));
 }
 
-export function encodeFujiUsdcTransfer(to, rawAmount) {
-  const amount = rawAmountToUsdcUnits(rawAmount);
+export function encodeArcUsdcTransfer(to, rawAmount) {
+  const amount = rawAmountToArcUsdcUnits(rawAmount);
 
   if (amount <= 0n) {
     throw new Error('Payment amount must be greater than 0 USDC.');
@@ -69,11 +59,11 @@ export function encodeFujiUsdcTransfer(to, rawAmount) {
   return `${ERC20_TRANSFER_SELECTOR}${encodeAddress(to)}${encodeUint256(amount)}`;
 }
 
-export async function connectAvalancheFujiWallet() {
-  return connectEvmWallet(AVALANCHE_FUJI_CHAIN);
+export async function connectArcTestnetWallet() {
+  return connectEvmWallet(ARC_TESTNET_CHAIN);
 }
 
-export async function sendAvalancheFujiUsdcPayment({ from, to, rawAmount }) {
+export async function sendArcTestnetUsdcPayment({ from, to, rawAmount }) {
   const ethereum = getInjectedEthereum();
 
   if (!ethereum) {
@@ -82,23 +72,24 @@ export async function sendAvalancheFujiUsdcPayment({ from, to, rawAmount }) {
 
   assertAddress(from, 'customer wallet');
   assertAddress(to, 'store receiver wallet');
+  assertAddress(ARC_USDC.address, 'Arc USDC token');
 
-  await ensureEvmChain(AVALANCHE_FUJI_CHAIN);
+  await ensureEvmChain(ARC_TESTNET_CHAIN);
 
   return ethereum.request({
     method: 'eth_sendTransaction',
     params: [
       {
         from,
-        to: FUJI_USDC.address,
+        to: ARC_USDC.address,
         value: '0x0',
-        data: encodeFujiUsdcTransfer(to, rawAmount),
+        data: encodeArcUsdcTransfer(to, rawAmount),
       },
     ],
   });
 }
 
-export async function waitForAvalancheFujiReceipt(txHash, { timeoutMs = 90000, intervalMs = 1500 } = {}) {
+export async function waitForArcTestnetReceipt(txHash, { timeoutMs = 90000, intervalMs = 1000 } = {}) {
   const ethereum = getInjectedEthereum();
 
   if (!ethereum) {
@@ -118,5 +109,5 @@ export async function waitForAvalancheFujiReceipt(txHash, { timeoutMs = 90000, i
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 
-  throw new Error(`Transaction was submitted but no receipt was found yet. Check Fuji explorer: ${fujiTxUrl(txHash)}`);
+  throw new Error(`Transaction was submitted but no receipt was found yet. Check Arc explorer: ${arcTxUrl(txHash)}`);
 }

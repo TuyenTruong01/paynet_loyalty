@@ -305,21 +305,12 @@ insert into warehouse_statuses(code, name, sort_order) values
 on conflict (code) do update set name = excluded.name, sort_order = excluded.sort_order;
 
 insert into payment_networks(code, name, chain_id, rpc_url, explorer_url) values
-  ('arc-testnet', 'Arc Testnet', 5042002, 'https://rpc.testnet.arc.network', 'https://testnet.arcscan.app'),
-  ('avalanche-fuji', 'Avalanche Fuji', 43113, 'https://api.avax-test.network/ext/bc/C/rpc', 'https://testnet.snowtrace.io'),
-  ('avalanche', 'Avalanche', 43114, null, null),
-  ('bnb-chain', 'BNB Chain', 56, null, null),
-  ('arbitrum', 'Arbitrum One', 42161, null, null)
+  ('arc-testnet', 'Arc Testnet', 5042002, 'https://rpc.testnet.arc.network', 'https://testnet.arcscan.app')
 on conflict (code) do update set name = excluded.name, chain_id = excluded.chain_id;
 
 with n as (select id from payment_networks where code = 'arc-testnet')
 insert into payment_tokens(network_id, symbol, contract_address, decimals)
 select n.id, 'USDC', '0x3600000000000000000000000000000000000000', 6 from n
-on conflict (network_id, symbol) do update set contract_address = excluded.contract_address, decimals = excluded.decimals;
-
-with n as (select id from payment_networks where code = 'avalanche-fuji')
-insert into payment_tokens(network_id, symbol, contract_address, decimals)
-select n.id, 'USDC', '0x5425890298aed601595a70AB815c96711a31Bc65', 6 from n
 on conflict (network_id, symbol) do update set contract_address = excluded.contract_address, decimals = excluded.decimals;
 
 with st as (select id, code from store_types),
@@ -402,7 +393,7 @@ on conflict (wallet_address) do update set full_name = excluded.full_name;
 insert into store_payment_methods(store_id, network_id, token_id, receiver_wallet, is_default, is_active)
 select stores.id, payment_networks.id, payment_tokens.id, stores.receiver_wallet, true, true
 from stores
-join payment_networks on payment_networks.code = 'avalanche-fuji'
+join payment_networks on payment_networks.code = 'arc-testnet'
 join payment_tokens on payment_tokens.network_id = payment_networks.id and payment_tokens.symbol = 'USDC'
 on conflict (store_id, network_id, token_id) do update set receiver_wallet = excluded.receiver_wallet, is_default = true, is_active = true;
 
