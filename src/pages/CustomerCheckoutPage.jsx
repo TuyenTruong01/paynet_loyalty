@@ -61,6 +61,26 @@ function getMetaMaskDappUrl() {
 
 const CHECKOUT_STORAGE_KEY = 'paynet.pendingCheckouts';
 
+function decodeDemoCheckout(token = '') {
+  if (!String(token).startsWith('demo-')) return null;
+
+  try {
+    const encoded = String(token).slice(5).replace(/-/g, '+').replace(/_/g, '/');
+    const padded = encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=');
+    const json = decodeURIComponent(escape(window.atob(padded)));
+    const order = JSON.parse(json);
+
+    return {
+      ...order,
+      checkoutToken: token,
+      checkout_token: token,
+      isDemo: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function findStoredCheckout(token = '') {
   if (!token || typeof window === 'undefined') return null;
   try {
@@ -231,8 +251,20 @@ export default function CustomerCheckoutPage({
 
       try {
         let checkoutFound = false;
+        const demoCheckout = decodeDemoCheckout(token);
 
-        if (hasSupabaseConfig && supabase && token) {
+        if (demoCheckout) {
+          setOrder(demoCheckout);
+          setAvailablePoints(0);
+          setUsePoints(false);
+          setRedeemInput(0);
+          setStatus(demoCheckout.paymentStatus === 'paid' || demoCheckout.status === 'paid' ? 'paid' : 'ready');
+          setTxHash(demoCheckout.txHash || '');
+          setProofTxHash(demoCheckout.proofTxHash || '');
+          checkoutFound = true;
+        }
+
+        if (!checkoutFound && hasSupabaseConfig && supabase && token) {
           const mapped = await loadCheckoutOrder(token);
 
           if (mapped) {

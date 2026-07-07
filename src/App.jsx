@@ -71,6 +71,13 @@ function ensureStoreProducts(store) {
   return Array.isArray(store?.products) ? store.products : [];
 }
 
+function uniqueText(values = []) {
+  return values
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+}
+
 function slugifyStoreName(name = '') {
   return String(name || 'new-store')
     .trim()
@@ -98,6 +105,7 @@ const OWNER_ALLOWED_PAGES = [
 ];
 const SYSTEM_ADMIN_ALLOWED_PAGES = ['admin', ...OWNER_ALLOWED_PAGES];
 const CHECKOUT_STORAGE_KEY = 'paynet.pendingCheckouts';
+const DEMO_WALLET_LABEL = 'demo-session';
 
 function readStoredCheckouts() {
   try {
@@ -112,14 +120,29 @@ function saveStoredCheckout(order) {
   window.localStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify([order, ...current].slice(0, 80)));
 }
 
+function encodeDemoCheckout(order) {
+  const payload = {
+    ...order,
+    checkoutToken: '',
+  };
+  const json = JSON.stringify(payload);
+  const encoded = window.btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+  return `demo-${encoded}`;
+}
+
 export default function App() {
-  const [page, setPage] = useState('admin');
+  const [page, setPage] = useState('dashboard');
   const [query, setQuery] = useState('');
   const [stores, setStores] = useState(() => applyRoleAccessToStores(initialNetworkStores));
   const [networkCustomers, setNetworkCustomers] = useState([]);
   const [networkPointsHistory, setNetworkPointsHistory] = useState([]);
   const [selectedStoreId, setSelectedStoreId] = useState(initialNetworkStores[0]?.id || '');
   const [connected, setConnected] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [currentWallet, setCurrentWallet] = useState('');
   const [dbMessage, setDbMessage] = useState('Frontend multi-store mode. Supabase schema can be connected after the UI is approved.');
 
@@ -208,21 +231,28 @@ export default function App() {
     [stores, currentWallet]
   );
 
-  const isSystemAdmin = connected && roleContext.roleKey === 'system_admin';
-  const isGuest = connected && roleContext.roleKey === 'guest';
+  const isSystemAdmin = connected && !demoMode && roleContext.roleKey === 'system_admin';
+  const isGuest = connected && !demoMode && roleContext.roleKey === 'guest';
   const roleStore = roleContext.store;
   const allowedPages = useMemo(() => {
+    if (demoMode) return ['dashboard', 'pos', 'orders', 'customers'];
     if (isSystemAdmin) return SYSTEM_ADMIN_ALLOWED_PAGES;
     if (isGuest || !connected) return [];
     if (isStoreOwnerRole(roleContext.roleKey)) return OWNER_ALLOWED_PAGES;
     return STAFF_ALLOWED_PAGES;
-  }, [connected, isGuest, isSystemAdmin, roleContext.roleKey]);
+  }, [connected, demoMode, isGuest, isSystemAdmin, roleContext.roleKey]);
 
   useEffect(() => {
+    if (demoMode) {
+      setPage(current => ['dashboard', 'pos', 'orders', 'customers'].includes(current) ? current : 'pos');
+      setSelectedStoreId(current => current || firstActiveStore(stores)?.id || '');
+      return;
+    }
+
     if (!connected || !currentWallet) return;
 
     if (roleContext.roleKey === 'system_admin') {
-      setPage(current => current || 'admin');
+      setPage(current => current === 'dashboard' ? 'admin' : current || 'admin');
       setSelectedStoreId(current => current || firstActiveStore(stores)?.id || '');
       return;
     }
@@ -239,14 +269,14 @@ export default function App() {
     if (roleContext.roleKey === 'guest') {
       setPage('dashboard');
     }
-  }, [connected, currentWallet, roleContext.roleKey, roleStore?.id, stores]);
+  }, [connected, currentWallet, demoMode, roleContext.roleKey, roleStore?.id, stores]);
 
   useEffect(() => {
-    if (!connected || isGuest || !allowedPages.length) return;
+    if (!connected || demoMode || isGuest || !allowedPages.length) return;
     if (!allowedPages.includes(page)) {
       setPage(allowedPages[0]);
     }
-  }, [allowedPages, connected, isGuest, page]);
+  }, [allowedPages, connected, demoMode, isGuest, page]);
 
   const activeStore = useMemo(() => {
     if (!stores.length) return null;
@@ -261,12 +291,16 @@ export default function App() {
 
   const staffMembers = data.staffMembers || [];
   const activeStaff = roleContext.member;
-  const displayStaff = activeStaff || { name: 'Not connected', role: 'Guest', roleKey: 'guest', wallet: currentWallet, avatar: 'U' };
+  const displayStaff = demoMode
+    ? { name: 'Demo Mode', role: 'Demo', roleKey: 'demo', wallet: 'Local demo session', avatar: 'DM' }
+    : activeStaff || { name: 'Not connected', role: 'Guest', roleKey: 'guest', wallet: currentWallet, avatar: 'U' };
   const isStoreOwner = isStoreOwnerRole(roleContext.roleKey);
   const canManageStore = isSystemAdmin || isStoreOwner;
-  const canUsePos = connected && Boolean(activeStore) && activeStore.status !== 'disabled' && roleContext.roleKey !== 'guest';
+  const canUsePos = demoMode || (connected && Boolean(activeStore) && activeStore.status !== 'disabled' && roleContext.roleKey !== 'guest');
   const isManager = canManageStore;
-  const posLockMessage = !connected
+  const posLockMessage = demoMode
+    ? ''
+    : !connected
     ? 'Connect or preview an approved wallet to create invoices.'
     : activeStore?.status === 'disabled'
       ? 'This store is disabled by the system admin.'
@@ -358,7 +392,7 @@ export default function App() {
 
     let order = null;
 
-    if (hasSupabaseConfig) {
+    if (hasSupabaseConfig && !demoMode) {
       try {
         order = await createCheckoutOrder({
           store: activeStore,
@@ -386,10 +420,11 @@ export default function App() {
       };
     }
 
-    const pendingOrder = {
+    let pendingOrder = {
       id: order.order_id,
       code: order.order_code,
       checkoutToken: order.checkout_token,
+      isDemo: demoMode || String(order.order_id).startsWith('demo'),
       storeId: activeStore.id,
       storeName: activeStore.name,
       storeBranch: activeStore.branch,
@@ -417,6 +452,20 @@ export default function App() {
       })),
     };
 
+    if (demoMode) {
+      const demoToken = encodeDemoCheckout(pendingOrder);
+      order = {
+        ...order,
+        checkout_token: demoToken,
+      };
+      pendingOrder = {
+        ...pendingOrder,
+        id: order.order_id,
+        checkoutToken: demoToken,
+        checkout_token: demoToken,
+      };
+    }
+
     saveStoredCheckout(pendingOrder);
     setCheckout(order);
     setCheckoutPayment(null);
@@ -429,7 +478,7 @@ export default function App() {
     if (!checkout) return;
     setPaymentStatus('checking');
 
-    if (hasSupabaseConfig && checkout.order_id && !String(checkout.order_id).startsWith('demo')) {
+    if (hasSupabaseConfig && !demoMode && checkout.order_id && !String(checkout.order_id).startsWith('demo')) {
       try {
         await confirmCheckoutPayment({
           orderId: checkout.order_id,
@@ -476,20 +525,23 @@ export default function App() {
       status: 'paid',
       paymentStatus: 'paid',
       paymentMethod: 'arc',
+      isDemo: demoMode,
       txHash: `0xmock${Date.now().toString(16)}`,
       createdAt: new Date().toISOString(),
       paidAt: new Date().toISOString(),
       items: cartRows.map(row => ({ id: row.id, productId: row.id, name: row.name, sku: row.sku, qty: row.qty, unitPrice: row.price, total: row.price * row.qty })),
     };
 
-    updateActiveStore(store => ({
-      ...store,
-      orders: [paidOrder, ...(store.orders || [])],
-      products: store.products.map(product => {
-        const cartItem = cartRows.find(item => item.id === product.id);
-        return cartItem ? { ...product, stock: Math.max(0, Number(product.stock || 0) - Number(cartItem.qty || 0)) } : product;
-      }),
-    }));
+    if (!demoMode) {
+      updateActiveStore(store => ({
+        ...store,
+        orders: [paidOrder, ...(store.orders || [])],
+        products: store.products.map(product => {
+          const cartItem = cartRows.find(item => item.id === product.id);
+          return cartItem ? { ...product, stock: Math.max(0, Number(product.stock || 0) - Number(cartItem.qty || 0)) } : product;
+        }),
+      }));
+    }
 
     saveStoredCheckout(paidOrder);
 
@@ -505,6 +557,9 @@ export default function App() {
       ...store,
       products: store.products.map(product => product.id === productId ? { ...product, active: false } : product),
     }));
+    if (hasSupabaseConfig) {
+      updateProductStatusRecord(productId, 'inactive').then(reloadNetwork).catch(error => alert(error.message || error));
+    }
   }
 
   async function saveProduct(product) {
@@ -525,11 +580,14 @@ export default function App() {
 
     updateActiveStore(store => {
       const exists = store.products.some(item => item.id === id);
+      const nextProducts = exists
+        ? store.products.map(item => item.id === id ? normalized : item)
+        : [normalized, ...store.products];
+
       return {
         ...store,
-        products: exists
-          ? store.products.map(item => item.id === id ? normalized : item)
-          : [normalized, ...store.products],
+        categories: uniqueText(['All', ...(store.categories || []), normalized.category]),
+        products: nextProducts,
       };
     });
     setEditingProduct(null);
@@ -597,6 +655,7 @@ export default function App() {
   async function handleConnectWallet() {
     try {
       const wallet = await connectEvmWallet(getPaymentChain(connectChainCode(activeStore)));
+      setDemoMode(false);
       setCurrentWallet(wallet.address);
       setConnected(true);
     } catch (error) {
@@ -605,8 +664,23 @@ export default function App() {
     }
   }
 
+  function handleStartDemo() {
+    setDemoMode(true);
+    setConnected(true);
+    setCurrentWallet(DEMO_WALLET_LABEL);
+    setPage('pos');
+    setSelectedStoreId(current => current || firstActiveStore(stores)?.id || '');
+    setInvoiceActive(false);
+    setCart([]);
+    setCheckout(null);
+    setCheckoutPayment(null);
+    setPaymentStatus('idle');
+    setPointsUsed(0);
+  }
+
   function handleSignOut() {
     setConnected(false);
+    setDemoMode(false);
     setCurrentWallet('');
     setPage('admin');
     setInvoiceActive(false);
@@ -781,6 +855,18 @@ export default function App() {
     }));
   }
 
+  function handleDeleteInventoryItem(productId) {
+    if (!canManageStore) return alert('Only the system admin or store owner can delete inventory items.');
+    if (!confirm('Delete this inventory row from the current view? The product catalog record will be kept.')) return;
+
+    updateActiveStore(store => ({
+      ...store,
+      products: store.products.map(product => product.id === productId
+        ? { ...product, inventoryHidden: true, stock: 0, min: 0, warehouseId: '', warehouse: '' }
+        : product),
+    }));
+  }
+
   function renderPage() {
     if (isGuest) {
       return (
@@ -837,8 +923,8 @@ export default function App() {
     if (page === 'orders') return <OrdersPage {...common} />;
     if (page === 'customers') return <CustomersPage customers={customers} />;
     if (page === 'staff') return <StaffPage staffMembers={safeStaffMembers} isManager={canManageStore} currentWallet={currentWallet} onSaveStaff={saveStaffMember} onDisableStaff={disableStaffMember} />;
-    if (page === 'products') return <ProductsPage products={data.products} setEditingProduct={setEditingProduct} canManage={canManageStore} onUpdateProductStatus={handleUpdateProductStatus} />;
-    if (page === 'inventory') return <InventoryPage products={data.products} warehouses={data.warehouses || []} inventory={data.inventory || []} canManage={canManageStore} onAddInventoryProduct={handleAddInventoryProduct} onUpdateInventoryWarehouse={handleUpdateInventoryWarehouse} />;
+    if (page === 'products') return <ProductsPage products={data.products} setEditingProduct={setEditingProduct} canManage={canManageStore} onUpdateProductStatus={handleUpdateProductStatus} onDeleteProduct={deleteProduct} />;
+    if (page === 'inventory') return <InventoryPage products={data.products} warehouses={data.warehouses || []} inventory={data.inventory || []} canManage={canManageStore} onAddInventoryProduct={handleAddInventoryProduct} onUpdateInventoryWarehouse={handleUpdateInventoryWarehouse} onDeleteInventoryItem={handleDeleteInventoryItem} />;
     if (page === 'points') {
       return (
         <PointsHistoryPage
@@ -924,6 +1010,8 @@ export default function App() {
         onStoreChange={setSelectedStoreId}
         isSystemAdmin={isSystemAdmin}
         isGuest={isGuest}
+        connected={connected}
+        demoMode={demoMode}
       />
       <main className="main-shell">
         <Header
@@ -931,12 +1019,13 @@ export default function App() {
           setQuery={setQuery}
           connected={connected}
           onConnect={handleConnectWallet}
+          onDemo={handleStartDemo}
           onSignOut={handleSignOut}
           staff={displayStaff}
           currentWallet={currentWallet}
           isManager={isManager}
           network={data.store.network}
-          roleLabel={roleContext.label}
+          roleLabel={demoMode ? 'Demo Mode: local checkout preview' : roleContext.label}
         />
         <StatusBanner message={dbMessage} onReload={reloadNetwork} />
         <div className="content-shell">
@@ -948,6 +1037,9 @@ export default function App() {
         <ProductModal
           product={editingProduct}
           categories={data.categories}
+          units={uniqueText(data.products.map(product => product.unit || 'unit'))}
+          usedCategories={uniqueText(data.products.map(product => product.category))}
+          usedUnits={uniqueText(data.products.map(product => product.unit || 'unit'))}
           onClose={() => setEditingProduct(null)}
           onSave={saveProduct}
         />

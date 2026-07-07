@@ -8,6 +8,7 @@ export default function Header({
   setQuery,
   connected,
   onConnect,
+  onDemo,
   onSignOut,
   staff,
   currentWallet,
@@ -41,6 +42,9 @@ export default function Header({
         <div className="connected-area">
           <button className="connect-wallet" type="button" onClick={onConnect}>
             <Wallet size={17} /> Connect Wallet
+          </button>
+          <button className="demo-wallet" type="button" onClick={onDemo}>
+            Demo
           </button>
         </div>
       ) : (

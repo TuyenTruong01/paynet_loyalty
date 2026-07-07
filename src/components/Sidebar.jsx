@@ -17,13 +17,15 @@ import {
   Warehouse,
 } from 'lucide-react';
 
-function buildNavGroups(isSystemAdmin) {
+function buildNavGroups(isSystemAdmin, isLimitedGuest = false) {
   const mainItems = [
     { key: 'dashboard', label: 'Dashboard', icon: Home },
-    ...(!isSystemAdmin ? [{ key: 'pos', label: 'POS / Checkout', icon: ShoppingCart, tag: 'POS' }] : []),
-    { key: 'orders', label: 'Orders', icon: ReceiptText },
-    { key: 'customers', label: 'Customers', icon: Users },
-    { key: 'staff', label: 'Staff', icon: UserCog },
+    ...(!isLimitedGuest ? [
+      { key: 'pos', label: 'POS / Checkout', icon: ShoppingCart, tag: 'POS' },
+      { key: 'orders', label: 'Orders', icon: ReceiptText },
+      { key: 'customers', label: 'Customers', icon: Users },
+      { key: 'staff', label: 'Staff', icon: UserCog },
+    ] : []),
   ];
 
   return [
@@ -37,6 +39,7 @@ function buildNavGroups(isSystemAdmin) {
       label: 'Main',
       items: mainItems,
     },
+    ...(isLimitedGuest ? [] : [
     {
       label: 'Loyalty',
       items: [
@@ -61,6 +64,7 @@ function buildNavGroups(isSystemAdmin) {
         { key: 'settings', label: 'Settings', icon: Settings },
       ],
     },
+    ]),
   ];
 }
 
@@ -73,8 +77,11 @@ export default function Sidebar({
   onStoreChange,
   isSystemAdmin = false,
   isGuest = false,
+  connected = false,
+  demoMode = false,
 }) {
-  const navGroups = isGuest ? [] : buildNavGroups(isSystemAdmin);
+  const limitedGuest = !connected && !demoMode;
+  const navGroups = isGuest ? [] : buildNavGroups(isSystemAdmin, limitedGuest);
 
   return (
     <aside className="sidebar">
@@ -88,7 +95,7 @@ export default function Sidebar({
         </div>
       </div>
 
-      {isSystemAdmin && !isGuest && stores.length > 0 && (
+      {(isSystemAdmin || demoMode) && !isGuest && stores.length > 0 && (
         <div className="sidebar-store-switcher">
           <span>Active store view</span>
           <select value={selectedStoreId || ''} onChange={event => onStoreChange?.(event.target.value)}>

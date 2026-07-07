@@ -7,6 +7,10 @@ export function toUSDC(rawAmount = 0) {
   return Number(rawAmount || 0) / DISPLAY_UNITS_PER_USDC;
 }
 
+export function rawFromUSDC(amount = 0) {
+  return Math.round(Number(amount || 0) * DISPLAY_UNITS_PER_USDC);
+}
+
 export function money(rawAmount = 0) {
   const value = toUSDC(rawAmount);
   return `${new Intl.NumberFormat('en-US', {
