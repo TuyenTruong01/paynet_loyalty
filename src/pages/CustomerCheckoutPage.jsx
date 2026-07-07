@@ -10,7 +10,7 @@ import {
   ARC_TESTNET_CHAIN,
   ARC_USDC,
 } from '../services/arcPayment.js';
-import { ensureEvmChain, getActiveEvmProvider } from '../services/evmWallet.js';
+import { ensureEvmChain, getActiveEvmProvider, restoreEvmWalletConnection } from '../services/evmWallet.js';
 import { recordApointPaymentProof } from '../services/apointProofService.js';
 import { formatPoints, money, pointsFromRaw, pointsToOnchainUnits, rawFromPoints, redeemablePointsFromRaw, shortAddress } from '../utils/format.js';
 
@@ -362,38 +362,46 @@ export default function CustomerCheckoutPage({
     };
   }, [walletConnected]);
 
+  async function applyWalletConnection(wallet) {
+    const walletAddress = wallet?.address;
+
+    if (!walletAddress) return;
+
+    setCustomerWallet(walletAddress);
+    setWalletConnected(true);
+    setWalletChainReady(Boolean(wallet.chainReady));
+    setUsePoints(false);
+
+    if (hasSupabaseConfig && supabase && walletAddress) {
+      const customer = await findOrCreateCustomerByWallet(walletAddress, order, store);
+
+      setWalletCustomer(customer);
+      setAvailablePoints(Number(customer?.point_balance || 0));
+
+      if (order?.id && customer?.id && status !== 'paid') {
+        await attachOrderToCustomer(order.id, customer.id);
+      }
+    } else {
+      setWalletCustomer(null);
+      setAvailablePoints(0);
+    }
+
+    if (!wallet.chainReady) {
+      setErrorMessage(
+        wallet.chainError?.message ||
+        `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`
+      );
+    } else {
+      setErrorMessage('');
+    }
+  }
+
   async function connectWallet() {
     setErrorMessage('');
 
     try {
       const wallet = await connectArcTestnetWallet();
-      const walletAddress = wallet.address;
-
-      setCustomerWallet(walletAddress);
-      setWalletConnected(true);
-      setWalletChainReady(Boolean(wallet.chainReady));
-      setUsePoints(false);
-
-      if (hasSupabaseConfig && supabase && walletAddress) {
-        const customer = await findOrCreateCustomerByWallet(walletAddress, order, store);
-
-        setWalletCustomer(customer);
-        setAvailablePoints(Number(customer?.point_balance || 0));
-
-        if (order?.id && customer?.id && status !== 'paid') {
-          await attachOrderToCustomer(order.id, customer.id);
-        }
-      } else {
-        setWalletCustomer(null);
-        setAvailablePoints(0);
-      }
-
-      if (!wallet.chainReady) {
-        setErrorMessage(
-          wallet.chainError?.message ||
-          `Wallet connected. Please switch your wallet to ${ARC_TESTNET_CHAIN.label} before paying.`
-        );
-      }
+      await applyWalletConnection(wallet);
     } catch (error) {
       console.error(error);
       setWalletConnected(false);
@@ -406,6 +414,48 @@ export default function CustomerCheckoutPage({
       setErrorMessage(error.message || 'Cannot connect wallet.');
     }
   }
+
+  useEffect(() => {
+    if (!order || walletConnected) return undefined;
+
+    let mounted = true;
+    let restoring = false;
+
+    const restoreWallet = async () => {
+      if (restoring || walletConnected) return;
+
+      restoring = true;
+
+      try {
+        const wallet = await restoreEvmWalletConnection(ARC_TESTNET_CHAIN);
+
+        if (mounted && wallet?.address) {
+          await applyWalletConnection(wallet);
+        }
+      } catch (error) {
+        console.warn('Cannot restore wallet connection:', error.message || error);
+      } finally {
+        restoring = false;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        restoreWallet();
+      }
+    };
+
+    window.addEventListener('focus', restoreWallet);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    restoreWallet();
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('focus', restoreWallet);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [order, walletConnected]);
 
   async function switchToArcNetwork() {
     setErrorMessage('');

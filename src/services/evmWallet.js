@@ -20,6 +20,11 @@ export function getActiveEvmProvider() {
   return activeEvmProvider || getInjectedEthereum();
 }
 
+export function setActiveEvmProvider(ethereum) {
+  activeEvmProvider = ethereum || activeEvmProvider;
+  return activeEvmProvider;
+}
+
 export function isValidEvmAddress(address = '') {
   return /^0x[a-fA-F0-9]{40}$/.test(String(address).trim());
 }
@@ -113,6 +118,47 @@ async function readProviderAccounts(ethereum) {
   } catch {
     return [];
   }
+}
+
+export async function getEvmProviderAccounts(ethereum = getActiveEvmProvider()) {
+  if (!ethereum) return [];
+  return readProviderAccounts(ethereum);
+}
+
+export async function restoreEvmWalletConnection(chain) {
+  const ethereum = getActiveEvmProvider();
+
+  if (!ethereum) {
+    return null;
+  }
+
+  const accounts = await readProviderAccounts(ethereum);
+  const address = accounts?.[0];
+
+  if (!isValidEvmAddress(address)) {
+    return null;
+  }
+
+  activeEvmProvider = ethereum;
+
+  let chainReady = true;
+  let chainError = null;
+
+  try {
+    await ensureEvmChain(chain, ethereum);
+  } catch (error) {
+    chainReady = false;
+    chainError = error;
+  }
+
+  return {
+    address,
+    chainId: chain.chainIdDecimal,
+    chainReady,
+    chainError,
+    network: chain.label,
+    provider: ethereum,
+  };
 }
 
 function waitForWalletConnectAccounts(ethereum, timeoutMs = 15000) {
@@ -215,12 +261,12 @@ export async function connectEvmWallet(chain) {
     ethereum = await getWalletConnectProvider(chain);
   }
 
+  activeEvmProvider = ethereum;
+
   const accounts = await requestWalletAccounts(ethereum);
   const address = accounts?.[0];
 
   assertAddress(address, 'connected wallet');
-
-  activeEvmProvider = ethereum;
 
   let chainReady = true;
   let chainError = null;
