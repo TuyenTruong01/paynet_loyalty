@@ -265,14 +265,30 @@ create table if not exists apoint_ledger (
   id uuid primary key default gen_random_uuid(),
   wallet_address text not null,
   store_id uuid references stores(id),
+  store_name text,
   order_id uuid references orders(id),
-  type text not null check (type in ('earn', 'redeem', 'adjust', 'refund')),
+  invoice_id text,
+  type text not null check (type in ('earned', 'redeemed', 'earn', 'redeem', 'adjust', 'refund')),
   points numeric not null,
   balance_after numeric,
   tx_hash text,
+  payment_tx_hash text,
+  proof_tx_hash text,
   note text,
   created_at timestamptz not null default now()
 );
+
+alter table apoint_ledger add column if not exists store_name text;
+alter table apoint_ledger add column if not exists invoice_id text;
+alter table apoint_ledger add column if not exists payment_tx_hash text;
+alter table apoint_ledger add column if not exists proof_tx_hash text;
+
+do $$
+begin
+  alter table apoint_ledger drop constraint if exists apoint_ledger_type_check;
+  alter table apoint_ledger add constraint apoint_ledger_type_check
+    check (type in ('earned', 'redeemed', 'earn', 'redeem', 'adjust', 'refund'));
+end $$;
 
 create table if not exists audit_logs (
   id uuid primary key default gen_random_uuid(),

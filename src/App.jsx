@@ -928,7 +928,7 @@ export default function App() {
     if (page === 'points') {
       return (
         <PointsHistoryPage
-          pointsHistory={data.pointsHistory}
+          pointsHistory={isSystemAdmin ? networkPointsHistory : data.pointsHistory}
           stores={visibleStores}
           scopeLabel={isSystemAdmin ? 'Network Analytics' : 'Store Analytics'}
         />

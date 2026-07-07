@@ -97,6 +97,38 @@ function mapOrder(row) {
   };
 }
 
+function mapPointLedger(row, storesById = {}, ordersById = {}) {
+  const order = ordersById[row.order_id] || null;
+  const payment = Array.isArray(order?.payments) ? order.payments[0] : null;
+  const rawResponse = payment?.raw_response || {};
+
+  return {
+    id: row.id,
+    customerWallet: row.wallet_address || row.customer_wallet || '',
+    wallet_address: row.wallet_address || row.customer_wallet || '',
+    storeId: row.store_id,
+    store_id: row.store_id,
+    storeName: row.store_name || storesById[row.store_id]?.name || '',
+    store_name: row.store_name || storesById[row.store_id]?.name || '',
+    orderId: row.order_id,
+    order_id: row.order_id,
+    invoiceId: row.invoice_id || order?.code || '',
+    invoice_id: row.invoice_id || order?.code || '',
+    type: row.type,
+    points: Number(row.points || 0),
+    balanceAfter: Number(row.balance_after || 0),
+    balance_after: Number(row.balance_after || 0),
+    paymentTxHash: row.payment_tx_hash || row.tx_hash || payment?.tx_hash || rawResponse.payment_tx_hash || '',
+    payment_tx_hash: row.payment_tx_hash || row.tx_hash || payment?.tx_hash || rawResponse.payment_tx_hash || '',
+    proofTxHash: row.proof_tx_hash || payment?.proof_tx_hash || rawResponse.proof_tx_hash || '',
+    proof_tx_hash: row.proof_tx_hash || payment?.proof_tx_hash || rawResponse.proof_tx_hash || '',
+    tx_hash: row.tx_hash || row.payment_tx_hash || payment?.tx_hash || rawResponse.payment_tx_hash || '',
+    note: row.note || '',
+    createdAt: row.created_at,
+    created_at: row.created_at,
+  };
+}
+
 function storeCategories(products = []) {
   return ['All', ...products.map(product => product.category).filter(Boolean)]
     .filter((item, index, arr) => arr.indexOf(item) === index);
@@ -167,7 +199,10 @@ export async function loadPaynetNetwork() {
     totalSpent: Number(row.total_spent || 0),
     createdAt: row.created_at,
   }));
-  const pointsHistory = rows(pointRows);
+  const rawPointRows = rows(pointRows);
+  const storesById = Object.fromEntries(rows(storeRows).map(store => [store.id, store]));
+  const ordersById = Object.fromEntries(orders.map(order => [order.id, order]));
+  const pointsHistory = rawPointRows.map(row => mapPointLedger(row, storesById, ordersById));
 
   const warehouseByProduct = Object.fromEntries(inventory.map(row => [
     row.product_id,
@@ -481,6 +516,8 @@ export async function confirmCheckoutPayment({ orderId, payerWallet, txHash, raw
   const redeemedValue = Number(rawResponse.redeemed_value_raw || 0);
   const earnedPoints = Number(rawResponse.earned_points || 0);
   const paidTotal = Number(rawResponse.payable_raw || 0);
+  const paymentTxHash = rawResponse.payment_tx_hash || txHash || '';
+  const proofTxHash = rawResponse.proof_tx_hash || '';
 
   const order = one(await supabase
     .from('orders')
@@ -525,6 +562,7 @@ export async function confirmCheckoutPayment({ orderId, payerWallet, txHash, raw
 
   if (payerWallet && (earnedPoints > 0 || redeemedPoints > 0)) {
     const existing = one(await supabase.from('customers').select('*').eq('wallet_address', payerWallet).maybeSingle());
+    const startingBalance = Number(existing?.point_balance || 0);
     const balance = Number(existing?.point_balance || 0) + earnedPoints - redeemedPoints;
     if (existing) {
       await supabase.from('customers').update({
@@ -541,33 +579,56 @@ export async function confirmCheckoutPayment({ orderId, payerWallet, txHash, raw
       });
     }
 
+    const store = one(await supabase.from('stores').select('name').eq('id', order.store_id).maybeSingle());
     const ledgerRows = [];
     if (redeemedPoints > 0) {
       ledgerRows.push({
         wallet_address: payerWallet,
         store_id: order.store_id,
+        store_name: store?.name || '',
         order_id: order.id,
-        type: 'redeem',
+        invoice_id: order.code,
+        type: 'redeemed',
         points: -redeemedPoints,
-        balance_after: Number(existing?.point_balance || 0) - redeemedPoints,
-        tx_hash: txHash,
-        note: `Redeemed on ${order.code}`,
+        balance_after: startingBalance - redeemedPoints,
+        tx_hash: paymentTxHash,
+        payment_tx_hash: paymentTxHash,
+        proof_tx_hash: proofTxHash,
+        note: 'Redeemed for checkout discount',
       });
     }
     if (earnedPoints > 0) {
       ledgerRows.push({
         wallet_address: payerWallet,
         store_id: order.store_id,
+        store_name: store?.name || '',
         order_id: order.id,
-        type: 'earn',
+        invoice_id: order.code,
+        type: 'earned',
         points: earnedPoints,
         balance_after: balance,
-        tx_hash: txHash,
-        note: `Earned from ${order.code}`,
+        tx_hash: paymentTxHash,
+        payment_tx_hash: paymentTxHash,
+        proof_tx_hash: proofTxHash,
+        note: 'Earned from USDC payment',
       });
     }
     if (ledgerRows.length) {
-      await supabase.from('apoint_ledger').insert(ledgerRows);
+      const ledgerResult = await supabase.from('apoint_ledger').insert(ledgerRows);
+      if (ledgerResult.error) {
+        const fallbackRows = ledgerRows.map(row => ({
+          wallet_address: row.wallet_address,
+          store_id: row.store_id,
+          order_id: row.order_id,
+          type: row.type === 'earned' ? 'earn' : row.type === 'redeemed' ? 'redeem' : row.type,
+          points: row.points,
+          balance_after: row.balance_after,
+          tx_hash: row.tx_hash,
+          note: row.note,
+        }));
+        const fallbackResult = await supabase.from('apoint_ledger').insert(fallbackRows);
+        if (fallbackResult.error) throw fallbackResult.error;
+      }
     }
   }
 

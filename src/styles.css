@@ -335,6 +335,7 @@ code { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; p
 }
 .error-text { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 12px; font-weight: 700; overflow-wrap: anywhere; }
 .explorer-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--primary); font-weight: 800; text-decoration: none; }
+.explorer-link.compact { margin-top: 0; font-size: 12px; white-space: nowrap; }
 .explorer-link:hover { text-decoration: underline; }
 
 

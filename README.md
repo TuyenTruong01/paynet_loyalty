@@ -27,6 +27,7 @@ Paynet APoint provides a store operations dashboard and wallet checkout flow:
 - Wallet roles are resolved from `src/config/roleAccess.json`.
 - The POS creates QR checkout links for customers.
 - The public checkout page supports injected wallets, WalletConnect, and a mobile MetaMask Browser fallback.
+- The current wallet checkout uses two customer confirmations: one for USDC payment and one for APoint proof.
 - Demo mode allows local checkout testing without writing orders, inventory changes, or point balances to production Supabase tables.
 
 ## Key Features
@@ -37,6 +38,7 @@ Paynet APoint provides a store operations dashboard and wallet checkout flow:
 - Customer checkout page at `/checkout/:token`.
 - Arc Testnet USDC payment flow.
 - APoint payment proof transaction after wallet payment.
+- Transparent two-transaction signing model for wallet payment plus on-chain proof.
 - Supabase payment status polling on the POS screen.
 - Manual cash confirmation for non-wallet payments.
 - Mobile wallet support through WalletConnect.
@@ -89,13 +91,62 @@ Role access is configured in `src/config/roleAccess.json` and resolved in `src/u
 8. Customer connects a wallet using injected provider, WalletConnect, or MetaMask Mobile Browser fallback.
 9. If the wallet is on the wrong network, the app requests a switch to Arc Testnet.
 10. Customer optionally redeems available APoint.
-11. Customer pays USDC on Arc Testnet.
+11. Customer confirms the first wallet transaction to pay USDC on Arc Testnet.
 12. The app waits for the Arc payment receipt.
-13. The app sends a proof transaction to `ApointPaymentProof`.
-14. Supabase marks the order and payment as paid, stores payment/proof metadata, and updates customer points.
-15. The POS polling loop detects the paid status and shows payment confirmation.
+13. Customer confirms the second wallet transaction to write the APoint proof.
+14. The app sends the proof transaction to `ApointPaymentProof`.
+15. Supabase marks the order and payment as paid, stores payment/proof metadata, and updates customer points.
+16. The POS polling loop detects the paid status and shows payment confirmation.
 
 For cash payments, staff can use the manual cash confirmation path from the POS screen. This updates Supabase only and does not emit an Arc proof event.
+
+## Wallet Signing Model
+
+The current connected checkout flow intentionally asks the customer to confirm two on-chain transactions.
+
+### First confirmation: USDC payment
+
+The first wallet confirmation is the actual payment transaction.
+
+Code path:
+
+- `src/pages/CustomerCheckoutPage.jsx`
+- `src/services/arcPayment.js`
+- `sendArcTestnetUsdcPayment()`
+
+This transaction calls the Arc USDC token interface and transfers USDC from the customer wallet to the store receiver wallet.
+
+### Second confirmation: APoint proof
+
+The second wallet confirmation records the loyalty/payment proof.
+
+Code path:
+
+- `src/pages/CustomerCheckoutPage.jsx`
+- `src/services/apointProofService.js`
+- `recordApointPaymentProof()`
+
+This transaction calls `ApointPaymentProof.recordPayment(...)` and emits `PaymentRecorded` with the invoice id, customer wallet, store wallet, paid amount, earned points, and timestamp.
+
+### Why two confirmations?
+
+Payment and proof are currently two separate on-chain actions:
+
+1. The Arc USDC token contract handles the value transfer.
+2. The APoint proof contract records the payment and loyalty proof event.
+
+Because these actions use separate contracts and separate transactions, the customer wallet must confirm both. This makes the demo transparent on Arcscan and keeps the proof contract simple, but it adds one extra mobile confirmation.
+
+### Possible one-confirmation upgrade
+
+If the project receives strong feedback, the recommended upgrade is a backend relayer or store signer for proof recording:
+
+1. Customer signs only the USDC payment.
+2. Backend verifies the Arc transaction hash, payer, receiver, token, amount, and invoice.
+3. Backend signs `ApointPaymentProof.recordPayment(...)`.
+4. Supabase stores both `payment_tx_hash` and `proof_tx_hash`.
+
+This keeps on-chain proof while reducing the customer experience to one wallet confirmation.
 
 ## Demo Workflow
 

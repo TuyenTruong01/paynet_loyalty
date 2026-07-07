@@ -330,7 +330,7 @@ export function buildStoreState(store) {
     orders: [],
     payments: [],
     movements: [],
-    pointsHistory: [],
+    pointsHistory: store.pointsHistory || [],
     inventory: [],
     warehouses: store.warehouses || [{ id: `${store.id}-main`, name: 'Main Store', address: store.branch, status: 'active', active: true }],
     purchaseOrders: [],
