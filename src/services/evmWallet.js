@@ -64,11 +64,24 @@ async function getWalletConnectProvider(chain) {
       optionalChains: [chain.chainIdDecimal],
       rpcMap: {
         [chain.chainIdDecimal]: chain.rpcUrls?.[0],
-      },
-      showQrModal: true,
-      metadata: {
-        name: 'Paynet APoint Loyalty',
-        description: 'Paynet USDC checkout',
+        },
+        showQrModal: true,
+        qrModalOptions: {
+          mobileWallets: [
+            {
+              id: 'metamask',
+              name: 'MetaMask',
+              links: {
+                native: 'metamask://',
+                universal: 'https://metamask.app.link',
+              },
+            },
+          ],
+          enableExplorer: true,
+        },
+        metadata: {
+          name: 'Paynet APoint Loyalty',
+          description: 'Paynet USDC checkout',
         url: typeof window !== 'undefined' ? window.location.origin : 'https://paynet.local',
         icons: typeof window !== 'undefined' ? [`${window.location.origin}/png/logo/paynet-logo.png`] : [],
       },
