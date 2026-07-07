@@ -26,6 +26,39 @@ function getCheckoutToken() {
   return checkoutIndex >= 0 ? parts[checkoutIndex + 1] : '';
 }
 
+function getMobileBrowserInfo() {
+  if (typeof window === 'undefined') {
+    return {
+      isMobile: false,
+      isIos: false,
+      isSafari: false,
+      isMetaMaskBrowser: false,
+    };
+  }
+
+  const ua = window.navigator.userAgent || '';
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+  const isMobile = isIos || /Android|webOS|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+  const isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+  const isMetaMaskBrowser = Boolean(window.ethereum?.isMetaMask);
+
+  return {
+    isMobile,
+    isIos,
+    isSafari,
+    isMetaMaskBrowser,
+  };
+}
+
+function getMetaMaskDappUrl() {
+  if (typeof window === 'undefined') return '';
+
+  const currentUrl = window.location.href;
+  const dappUrl = currentUrl.replace(/^https?:\/\//i, '');
+
+  return `https://metamask.app.link/dapp/${encodeURI(dappUrl)}`;
+}
+
 const CHECKOUT_STORAGE_KEY = 'paynet.pendingCheckouts';
 
 function findStoredCheckout(token = '') {
@@ -171,6 +204,8 @@ export default function CustomerCheckoutPage({
   receiverWallet = '',
 }) {
   const token = getCheckoutToken();
+  const mobileBrowserInfo = useMemo(() => getMobileBrowserInfo(), []);
+  const showMetaMaskBrowserFallback = mobileBrowserInfo.isMobile && !mobileBrowserInfo.isMetaMaskBrowser;
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState(null);
@@ -395,6 +430,14 @@ export default function CustomerCheckoutPage({
       );
     } finally {
       setSwitchingChain(false);
+    }
+  }
+
+  function openInMetaMaskBrowser() {
+    const url = getMetaMaskDappUrl();
+
+    if (url) {
+      window.location.href = url;
     }
   }
 
@@ -692,6 +735,17 @@ export default function CustomerCheckoutPage({
             >
               <Wallet size={18} /> Connect Wallet
             </button>
+
+            {showMetaMaskBrowserFallback && (
+              <button
+                className="secondary full public-pay-button"
+                type="button"
+                onClick={openInMetaMaskBrowser}
+              >
+                <Wallet size={18} /> Open in MetaMask Browser
+              </button>
+            )}
+
             <p className="helper-text">
               Loyalty points will be loaded from the wallet you connect. A new wallet starts with 0 pts.
             </p>
